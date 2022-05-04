@@ -39,7 +39,7 @@ class Instruction:
     #tokenizes the input string
     def breakUpInput(self):
         #special characters in llvm ir, will get their own tokens
-        token_breaks = [' ','[', ']', '<', '>', ',',':',';','#','*','\"', '\n', '!']
+        token_breaks = [' ','[', ']', '<', '>', ',',':',';','#','*', '\n', '!']
         currtok = ""
         str_idx = 0
         while(str_idx < len(self.string)):
@@ -69,6 +69,14 @@ class Instruction:
             self.instruction_type = "terminator"
             self.ParseTerminatorInstr()
         #arithmatic
+        elif(":" == self.tokens[1]):
+            self.instruction_type = "header"
+            self.args = Header_Args()
+            self.args.target = self.tokens[0]
+            self.args.instr_type = "Header"
+            self.args.instr = "None"
+        elif("!" == self.tokens[0]):
+            self.instruction_type = "metadata"
         elif(self.tokens[2] in self.binary_instructions):
             #done
             self.instruction_type = "binary"
@@ -98,6 +106,13 @@ class Instruction:
         elif(self.tokens[2] in self.other_instructions or self.tokens[3] in self.other_instructions):
             self.instruction_type = "other"
             self.ParseOtherInstr()
+        elif("zeroinitializer" in self.tokens):
+            self.instruction_type = "zeroinitializer"
+            self.ParseZeroInitializer()
+        elif("attributes" == self.tokens[0]):
+            self.instruction_type = "attribute"
+            self.args = Attribute_Args()
+            self.args.attribute_num = int(self.tokens.Index("#") + 1)
         else:
             print("Error: instruction not recognized\n")
             return
@@ -128,6 +143,10 @@ class Instruction:
                     self.args.condition = self.tokens[2]
                     self.args.true_target = self.tokens[5]
                     self.args.false_target = self.tokens[8]
+                if('llvm.loop' in self.tokens):
+                    self.args.is_loop = True
+                    idx = self.tokens.index('llvm.loop')
+                    self.args.loop_info = self.tokens[idx + 2]
         else:
             print("Error: instruction not implemented\n")
 
@@ -238,8 +257,8 @@ class Instruction:
             self.args = Bitcast_Args()
             self.args.result = self.tokens[0]
             idx = self.tokens.index('bitcast')
-            idx = self.args.op_type.Get_Type(self.tokens, idx + 1)
-            self.args.op_value = self.tokens[idx + 1]
+            idx = self.args.op1_type.Get_Type(self.tokens, idx + 1)
+            self.args.op1 = self.tokens[idx + 1]
             idx = self.tokens.index('to')
             self.args.result_type.Get_Type(self.tokens, idx + 1)
         else:
@@ -297,6 +316,28 @@ class Instruction:
             idx += 1  
         return
 
+    def ParseZeroInitializer(self):
+        self.instruction_type = "Zero Initializer"
+        self.args = ZeroInitializer_Args()
+        self.args.instr_type = "Zero Initializer"
+        self.args.instr = "zeroinitializer"
+        self.args.result = self.tokens[0]
+        idx = 2
+        while(self.tokens[idx] not in (self.type_tokens + ["global"])):
+            self.args.flags.append(self.tokens[idx])
+            idx += 1
+        if(self.tokens[idx] == "global"):
+            self.args.is_global = True
+            idx += 1
+        idx = self.args.type.Get_Type(self.tokens, idx)
+        idx += 1
+        if(self.tokens[idx] != "zeroinitializer"):
+            print("Error, this should be zeroinitializer: " + self.tokens[idx])
+        if("align" in self.tokens):
+            idx = self.tokens.index("align")
+            self.args.alignment = int(self.tokens[idx + 1])
+
+        return
 
         
 

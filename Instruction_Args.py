@@ -1,3 +1,4 @@
+from sklearn.feature_selection import SelectFromModel
 from Arg_Type import *
 import Parser as p
 #instructions of type <result> = <instr> <flags> <type> <arg1>, <arg2>
@@ -35,13 +36,13 @@ class Bitcast_Args(Instruction_Args):
         self.instr = 'bitcast'
         self.result = 'DEFAULT'
         self.result_type = Arg_Type()
-        self.op_type = Arg_Type()
-        self.op_value = 'DEFAULT'
+        self.op1_type = Arg_Type()
+        self.op1 = 'DEFAULT'
     def printArgs(self):
         super().printArgs()
         print("\tResult: " + self.result)
-        print("\tOperand: " + self.op_value)
-        print("\tFrom: " + self.op_type.printType() + ", to " + self.result_type.printType())
+        print("\tOperand: " + self.op1)
+        print("\tFrom: " + self.op1_type.printType() + ", to " + self.result_type.printType())
 
 class R_2op_Args(Instruction_Args):
     def __init__(self):
@@ -114,6 +115,7 @@ class Branch_Args(Instruction_Args):
         print("\tCondition: " + self.condition)
         print("\tTrue target: " + self.true_target)
         print("\tFalse target: " + self.false_target)
+        print("Is Loop: " + str(self.is_loop) + ", Loop Info: " + self.loop_info)
 
 #instructions are named for loads/stores
 #but alloca does not use pointer or pointer_type
@@ -158,3 +160,41 @@ class GetElementPtr_Args(Instruction_Args):
             type_print += self.index_type[i].printType() + ' '
         print("Index Types: " + type_print)
         print("Index Vals:  " + ' '.join(self.index_value)) 
+
+class ZeroInitializer_Args(Instruction_Args):
+    def __init__(self):
+        Instruction_Args.__init__(self)
+        self.result = "DEFAULT"
+        self.type = Arg_Type()
+        self.is_global = False
+        self.alignment = 0
+    def printArgs(self):
+        super().printArgs()
+        print("\tResult: " + self.result + ", Type: " + self.type.printType())
+        print("\tAlignment: " + str(self.alignment))
+        print("\tIs Global: " + str(self.is_global))
+
+class Header_Args(Instruction_Args):
+    def __init__(self):
+        Instruction_Args.__init__(self)
+        self.target = "DEFAULT"
+
+    def printArgs(self):
+        super().printArgs()
+        print("\tTarget: " + self.target)
+
+class Attribute_Args(Instruction_Args):
+    def __init__(self):
+        Instruction_Args.__init__(self)
+        self.attribute_num = -1
+    def printArgs(self):
+        super().printArgs()
+        print("\tAttribute Num: " + str(self.attribute_num))
+
+class MetaData_Args(Instruction_Args):
+    def __init__(self):
+        Instruction_Args.__init__(self)
+        self.metadata_num = -1
+    def printArgs(self):
+        super().printArgs()
+        print("Metadata num: " + str(self.metadata_num))
