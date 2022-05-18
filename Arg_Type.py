@@ -20,8 +20,11 @@ class Arg_Type():
     #Gets the type of the type starting at idx in tokens
     #returns the index of the last element of the types
     def Get_Type(self, tokens, idx):
-        if(tokens[idx] not in p.Instruction.type_tokens):
-            print("Error, attempting to get type on bad index")
+        if(tokens[idx][0] == "%" or tokens[idx][0] == "@"):
+            self.type_str = tokens[idx]
+            return idx
+        elif(tokens[idx] not in p.Instruction.type_tokens):
+            print("Error, attempting to get type on bad index: " + tokens[idx])
         if(tokens[idx] == '<'):
             self.is_vector = True
             self.width = int(tokens[idx + 1])

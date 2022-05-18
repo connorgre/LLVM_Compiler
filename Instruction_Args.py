@@ -1,4 +1,3 @@
-from sklearn.feature_selection import SelectFromModel
 from Arg_Type import *
 import Parser as p
 #instructions of type <result> = <instr> <flags> <type> <arg1>, <arg2>
@@ -178,10 +177,12 @@ class Header_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
         self.target = "DEFAULT"
+        self.predecessors = []
 
     def printArgs(self):
         super().printArgs()
         print("\tTarget: " + self.target)
+        print("\tPredecessors: " + ', '.join(self.predecessors))
 
 class Attribute_Args(Instruction_Args):
     def __init__(self):

@@ -29,12 +29,15 @@ class Instruction:
     conversion_instructions = ["trunc", "zext", "sext", "fptrunc", "fpext", "fptoui", "fptosi", "uitofp", "sitofp", "ptrtoint", "inttoptr", "bitcast"]
     other_instructions = ["icmp", "fcmp", "phi", "select", "call", "va_arg"]
     #takes as input the string of the instruction (1 line)
-    def __init__(self, string):
+    def __init__(self, string, line_num=-1, instr_num = -1):
         self.string = string
         self.tokens = []
         self.args = None
+        self.instruction_type = "DEFAULT"
         self.breakUpInput()
         self.parseTokens()
+        self.line_num = line_num
+        self.instr_num = instr_num
 
     #tokenizes the input string
     def breakUpInput(self):
@@ -42,9 +45,17 @@ class Instruction:
         token_breaks = [' ','[', ']', '<', '>', ',',':',';','#','*', '\n', '!']
         currtok = ""
         str_idx = 0
+        in_quote = 0
+        while(self.string[str_idx].isspace()):
+            str_idx += 1
         while(str_idx < len(self.string)):
             c = self.string[str_idx]
-            if(c in token_breaks):
+            if(self.string[str_idx] == '"'):
+                if(in_quote == 0):
+                    in_quote = 1
+                else:
+                    in_quote = 0
+            if(c in token_breaks and in_quote == 0):
                 if(currtok != ''):
                     self.tokens.append(currtok)
                 currtok = ""
@@ -58,6 +69,8 @@ class Instruction:
             str_idx += 1
         if(currtok != ''):
             self.tokens.append(currtok)
+        while(len(self.tokens) < 4):
+            self.tokens.append("")
 
     #calls the appropriate instruction parser based on type of instruction
     #These are grouped based on the llvm manual grouping
@@ -68,15 +81,24 @@ class Instruction:
             #done
             self.instruction_type = "terminator"
             self.ParseTerminatorInstr()
+        elif("!" == self.tokens[0]):
+            self.instruction_type = "metadata"
+            self.args = MetaData_Args()
+        elif(";" == self.tokens[0]):
+            self.instruction_type = "comment"
+            self.args = Instruction_Args()
+            self.args.instruction_type = "comment"
+        elif("zeroinitializer" in self.tokens):
+            self.instruction_type = "zeroinitializer"
+            self.ParseZeroInitializer()
+        elif("attributes" == self.tokens[0]):
+            self.instruction_type = "attribute"
+            self.args = Attribute_Args()
+            self.args.attribute_num = int(self.tokens.index("#") + 1)
         #arithmatic
         elif(":" == self.tokens[1]):
             self.instruction_type = "header"
-            self.args = Header_Args()
-            self.args.target = self.tokens[0]
-            self.args.instr_type = "Header"
-            self.args.instr = "None"
-        elif("!" == self.tokens[0]):
-            self.instruction_type = "metadata"
+            self.ParseHeaderInstr()
         elif(self.tokens[2] in self.binary_instructions):
             #done
             self.instruction_type = "binary"
@@ -94,27 +116,41 @@ class Instruction:
         elif(self.tokens[2] in self.aggregate_instructions):
             self.instruction_type = "aggregate"
             self.ParseAggregateInstr()
-        #memory access instructions
-        elif(self.tokens[0] in self.memory_instructions or self.tokens[1] in self.memory_instructions or self.tokens[2] in self.memory_instructions or self.tokens[3] in self.memory_instructions):
-            self.instruction_type = "memory"
-            self.ParseMemoryInstr()
         #convert data types (I dont think I will have these)
         elif(self.tokens[2] in self.conversion_instructions):
             self.instruction_type = "conversion"
             self.ParseConversionInstr()
         #other misc instructions (need index 3 for the call instruction)
-        elif(self.tokens[2] in self.other_instructions or self.tokens[3] in self.other_instructions):
+        elif(self.tokens[2] in self.other_instructions or self.tokens[3] in self.other_instructions or "call" in self.tokens):
             self.instruction_type = "other"
             self.ParseOtherInstr()
-        elif("zeroinitializer" in self.tokens):
-            self.instruction_type = "zeroinitializer"
-            self.ParseZeroInitializer()
-        elif("attributes" == self.tokens[0]):
-            self.instruction_type = "attribute"
-            self.args = Attribute_Args()
-            self.args.attribute_num = int(self.tokens.Index("#") + 1)
+        #memory access instructions
+        elif(self.tokens[0] in self.memory_instructions or self.tokens[1] in self.memory_instructions or self.tokens[2] in self.memory_instructions or self.tokens[3] in self.memory_instructions):
+            self.instruction_type = "memory"
+            self.ParseMemoryInstr()
+        elif("source_filename" == self.tokens[0]):
+            self.instruction_type = "filename"
+            self.args = Instruction_Args()
+            self.args.instr = self.tokens[2]
+        elif("datalayout" == self.tokens[1]):
+            self.instruction_type = "datalayout"
+            self.args = Instruction_Args()
+            self.args.instr = self.tokens[3]
+        elif("triple" == self.tokens[1]):
+            self.instruction_type = "triple"
+            self.args = Instruction_Args()
+            self.args.instr = self.tokens[3]
+        elif("define" == self.tokens[0]):
+            self.instruction_type = "define"
+            self.args = Instruction_Args()
+        elif("declare" == self.tokens[0]):
+            self.instruction_type = "declare"
+            self.args = Instruction_Args()
+        elif("}" == self.tokens[0]):
+            self.instruction_type = "function end"
+            self.args = Instruction_Args()
         else:
-            print("Error: instruction not recognized\n")
+            print("Instr not recognized: " + self.string)
             return
 
     #for now, only implementing ret and br, I don't think
@@ -148,7 +184,7 @@ class Instruction:
                     idx = self.tokens.index('llvm.loop')
                     self.args.loop_info = self.tokens[idx + 2]
         else:
-            print("Error: instruction not implemented\n")
+            print("Error: instruction not implemented")
 
     #for binary and bitwise instructions, cannot use constant value vector operands (vector registers are ok)
     #   <result> = <instr> <flags> <type> <op1> , <op2>
@@ -207,8 +243,8 @@ class Instruction:
             idx += 1
             self.args.pointer = self.tokens[idx]
             idx += 1
-            while(idx != len(self.tokens)):
-                print("going through rest of array")
+            while(idx != len(self.tokens) and self.tokens[idx] != ""):
+                #print("going through rest of array")
                 idx += 1
                 #don't need the return value becaus only i32, taking up only 1 space
                 newarg = Arg_Type()
@@ -300,7 +336,7 @@ class Instruction:
         elif('call' in self.tokens):
             #<result> = [tail | musttail | notail ] call [fast-math flags] [cconv] [ret attrs] [addrspace(<num>)] <ty>|<fnty> <fnptrval>(<function args>) [fn attrs] [ operand bundles ]
             # i think i can ignore [fast-math flags], [cconv], <fnty>, 
-            print("***not finished implementing***")
+            print("***call not finished implementing***")
             idx = 0
             self.args = Call_Args()
             self.instr = 'call'
@@ -338,10 +374,26 @@ class Instruction:
             self.args.alignment = int(self.tokens[idx + 1])
 
         return
+    
+    def ParseHeaderInstr(self):
+        self.args = Header_Args()
+        self.args.target = self.tokens[0]
+        self.args.instr_type = "Header"
+        self.args.instr = "None"
+        if("preds" in self.tokens):
+            idx = self.tokens.index("preds")
+            idx += 2
+            self.args.predecessors.append(self.tokens[idx])
+            while(idx+1 < len(self.tokens)):
+                idx += 2
+                self.args.predecessors.append(self.tokens[idx])
 
-        
-
-
+    def Print_Instruction(self):
+        print("String: " + self.string)
+        print("Tokens: " + " ".join(self.tokens))
+        print("Args: ")
+        self.args.printArgs()
+        print("Linenum: " + str(self.line_num) + ", Instrnum: " + str(self.instr_num))
 
 
 

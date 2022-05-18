@@ -29,9 +29,11 @@ declare dso_local i32 @__cxa_atexit(void (i8*)*, i8*, i8*) local_unnamed_addr #2
 
 ; Function Attrs: nofree norecurse nounwind uwtable
 define dso_local i32 @main(i32 %argc, i8** nocapture readnone %argv) local_unnamed_addr #3 {
+;0
 entry:
   br label %for.cond1.preheader
 
+;1
 for.cond1.preheader:                              ; preds = %for.cond.cleanup129, %entry
   %indvar310 = phi i64 [ 0, %entry ], [ %indvar.next311, %for.cond.cleanup129 ]
   call void @llvm.memset.p0i8.i64(i8* nonnull align 16 dereferenceable(1024) bitcast (float* getelementptr inbounds ([768 x float], [768 x float]* @rf0, i64 0, i64 512) to i8*), i8 0, i64 1024, i1 false)
@@ -41,22 +43,27 @@ for.cond1.preheader:                              ; preds = %for.cond.cleanup129
   %0 = shl nsw i64 %indvar310, 18
   br label %for.cond16.preheader
 
+;2
 for.cond.cleanup:                                 ; preds = %for.cond.cleanup129
   ret i32 0
 
+;3
 for.cond127.preheader:                            ; preds = %for.cond.cleanup54
   %1 = shl nsw i64 %indvar310, 10
   br label %for.cond131.preheader
 
+;4
 for.cond16.preheader:                             ; preds = %for.cond.cleanup54, %for.cond1.preheader
   %indvar266 = phi i64 [ 0, %for.cond1.preheader ], [ %indvar.next267, %for.cond.cleanup54 ]
   %2 = shl nuw nsw i64 %indvar266, 9
   br label %for.cond20.preheader
 
+;5
 for.cond52.preheader:                             ; preds = %for.cond20.preheader
   %3 = shl nsw i64 %indvar266, 13
   br label %for.cond56.preheader
 
+;6
 for.cond20.preheader:                             ; preds = %for.cond20.preheader, %for.cond16.preheader
   %indvar = phi i64 [ 0, %for.cond16.preheader ], [ %indvar.next, %for.cond20.preheader ]
   %4 = shl nuw nsw i64 %indvar, 4
@@ -85,6 +92,7 @@ for.cond20.preheader:                             ; preds = %for.cond20.preheade
   %exitcond.not = icmp eq i64 %indvar.next, 32
   br i1 %exitcond.not, label %for.cond52.preheader, label %for.cond20.preheader
 
+;7
 for.cond56.preheader:                             ; preds = %for.cond.cleanup58, %for.cond52.preheader
   %indvars.iv293 = phi i64 [ 0, %for.cond52.preheader ], [ %indvars.iv.next294, %for.cond.cleanup58 ]
   %6 = shl i64 %indvars.iv293, 4
@@ -92,16 +100,19 @@ for.cond56.preheader:                             ; preds = %for.cond.cleanup58,
   %8 = shl nsw i64 %indvars.iv293, 9
   br label %for.cond60.preheader
 
+;8
 for.cond.cleanup54:                               ; preds = %for.cond.cleanup58
   %indvar.next267 = add nuw nsw i64 %indvar266, 1
   %exitcond301.not = icmp eq i64 %indvar.next267, 32
   br i1 %exitcond301.not, label %for.cond127.preheader, label %for.cond16.preheader
 
+;9
 for.cond60.preheader:                             ; preds = %for.cond.cleanup62, %for.cond56.preheader
   %indvars.iv289 = phi i64 [ 0, %for.cond56.preheader ], [ %indvars.iv.next290, %for.cond.cleanup62 ]
   %9 = shl nsw i64 %indvars.iv289, 4
   br label %vector.body335
 
+;10
 vector.body335:                                   ; preds = %vector.body335, %for.cond60.preheader
   %index337 = phi i64 [ 0, %for.cond60.preheader ], [ %index.next338, %vector.body335 ]
   %10 = add nuw nsw i64 %7, %index337
@@ -156,16 +167,19 @@ vector.body335:                                   ; preds = %vector.body335, %fo
   %45 = icmp eq i64 %index337, 0
   br i1 %45, label %for.cond.cleanup62, label %vector.body335, !llvm.loop !6
 
+;11
 for.cond.cleanup58:                               ; preds = %for.cond.cleanup62
   %indvars.iv.next294 = add nuw nsw i64 %indvars.iv293, 1
   %exitcond298.not = icmp eq i64 %indvars.iv.next294, 16
   br i1 %exitcond298.not, label %for.cond.cleanup54, label %for.cond56.preheader
 
+;12
 for.cond.cleanup62:                               ; preds = %vector.body335
   %indvars.iv.next290 = add nuw nsw i64 %indvars.iv289, 1
   %exitcond292.not = icmp eq i64 %indvars.iv.next290, 32
   br i1 %exitcond292.not, label %for.cond.cleanup58, label %for.cond60.preheader
 
+;13
 for.cond131.preheader:                            ; preds = %for.cond.cleanup133, %for.cond127.preheader
   %indvar312 = phi i64 [ 0, %for.cond127.preheader ], [ %indvar.next313, %for.cond.cleanup133 ]
   %46 = shl i64 %indvar312, 4
@@ -174,6 +188,7 @@ for.cond131.preheader:                            ; preds = %for.cond.cleanup133
   %49 = add nuw nsw i64 %48, %1
   br label %vector.body
 
+;14
 vector.body:                                      ; preds = %vector.body, %for.cond131.preheader
   %index = phi i64 [ 0, %for.cond131.preheader ], [ %index.next, %vector.body ]
   %50 = add nuw nsw i64 %47, %index
@@ -209,11 +224,13 @@ vector.body:                                      ; preds = %vector.body, %for.c
   %71 = icmp eq i64 %index, 0
   br i1 %71, label %for.cond.cleanup133, label %vector.body, !llvm.loop !9
 
+;15
 for.cond.cleanup129:                              ; preds = %for.cond.cleanup133
   %indvar.next311 = add nuw nsw i64 %indvar310, 1
   %exitcond329.not = icmp eq i64 %indvar.next311, 4
   br i1 %exitcond329.not, label %for.cond.cleanup, label %for.cond1.preheader, !llvm.loop !10
 
+;16
 for.cond.cleanup133:                              ; preds = %vector.body
   %indvar.next313 = add nuw nsw i64 %indvar312, 1
   %exitcond326.not = icmp eq i64 %indvar.next313, 16
@@ -222,6 +239,7 @@ for.cond.cleanup133:                              ; preds = %vector.body
 
 ; Function Attrs: uwtable
 define internal void @_GLOBAL__sub_I_gcn.cpp() #4 section ".text.startup" {
+;17
 entry: 
   tail call void @_ZNSt8ios_base4InitC1Ev(%"class.std::ios_base::Init"* nonnull @_ZStL8__ioinit)
   %0 = tail call i32 @__cxa_atexit(void (i8*)* bitcast (void (%"class.std::ios_base::Init"*)* @_ZNSt8ios_base4InitD1Ev to void (i8*)*), i8* getelementptr inbounds (%"class.std::ios_base::Init", %"class.std::ios_base::Init"* @_ZStL8__ioinit, i64 0, i32 0), i8* nonnull @__dso_handle) #7
