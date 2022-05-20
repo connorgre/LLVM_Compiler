@@ -17,7 +17,15 @@ class Instruction_Block:
         self.target2 = "DEFAULT"
         self.entry_blocks = []
         self.is_llvm_loop = False
-        self.is_loop = False
+        self.is_loop_entry = False
+        self.is_loop_exit = False
+        self.loop_depth = 0
+        self.block_order = -1
+        
+        self.exit_idx = -1          #if we are an entry block, index of the block we exit from
+        self.entry_idx = -1         #if we are a closing block, index of the block we enter to
+        self.target1_idx = -1       #block index of target1
+        self.target2_idx = -1       #block index of target2
 
     def Get_Block(self, instructions: List[parser.Instruction]):
         idx = self.start_idx
@@ -31,8 +39,6 @@ class Instruction_Block:
         while(pred_idx < len(instructions[idx].args.predecessors)):
             self.entry_blocks.append(instructions[idx].args.predecessors[pred_idx])
             pred_idx += 1
-        if(("%" + self.name) in self.entry_blocks):
-            self.is_loop = True
         while(instructions[idx].instruction_type != "terminator"):
             self.instructions.append(instructions[idx])
             idx += 1
@@ -57,12 +63,19 @@ class Instruction_Block:
         print("BlockNum: " + str(self.block_num))
         print("Predecessors: " + ' '.join(self.entry_blocks))
         print("Target1: " + self.target1 + ", Target2: " + self.target2)
-        print("Is Loop: " + str(self.is_loop) + ", Is LLVM Loop: " + str(self.is_llvm_loop))
+        print("Loop Entry: " + str(self.is_loop_entry) + ", Loop Exit: " + str(self.is_loop_exit))
         if(print_instructions == True):
             print("Instructions: ")
             for instr in self.instructions:
                 print("*************************************************")
                 instr.Print_Instruction()
 
+    def Print_Block_Short(self):
+        print("\tName: " + self.name + ", Order: " + str(self.block_order))
+        if(self.target1 != self.target2):
+            print("\tSucessors: " + self.target1 + ", " + self.target2)
+        else:
+            print("\tSucessors: " + self.target1)
+        print("\tLoop Entry: " + str(self.is_loop_entry) + ", Loop Exit: " + str(self.is_loop_exit) + ", Loop Depth: " + str(self.loop_depth))
 
 
