@@ -38,6 +38,7 @@ class Instruction:
         self.parseTokens()
         self.line_num = line_num
         self.instr_num = instr_num
+        self.block_offset = -1    #the line within the block (for ordering instructions)
 
     #tokenizes the input string
     def breakUpInput(self):
@@ -394,6 +395,7 @@ class Instruction:
         print("Args: ")
         self.args.printArgs()
         print("Linenum: " + str(self.line_num) + ", Instrnum: " + str(self.instr_num))
+        print("Block linenum: " + str(self.block_offset))
 
 
 

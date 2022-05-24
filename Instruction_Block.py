@@ -54,16 +54,30 @@ class Instruction_Block:
             self.target1 = instructions[idx].args.true_target
             self.target2 = instructions[idx].args.false_target
             self.is_llvm_loop = instructions[idx].args.is_loop
+        elif(instructions[idx].args.instr != "ret"):
+            print("Error, final instruction in block not br or ret")
+        self.Get_Block_Offsets()
         return idx + 1
 
+    def Get_Block_Offsets(self):
+        initial_instruction_num = self.instructions[0].instr_num
+        prev_offset = -1
+        for instr in self.instructions:
+            instr.block_offset = instr.instr_num - initial_instruction_num
+            if(instr.block_offset <= prev_offset):
+                print("Error, block offset got smaller")
+            prev_offset = instr.block_offset
+
+
+
     def Print_Block(self, print_instructions = False):
-        print("Name: " + self.name)
+        print("Name: " + self.name + ", Order: " + str(self.block_order))
         print("Start: " + str(self.start_idx) + ", Line: " + str(self.start_line))
         print("End: " + str(self.end_idx) + ", Line: " + str(self.end_line))
         print("BlockNum: " + str(self.block_num))
         print("Predecessors: " + ' '.join(self.entry_blocks))
         print("Target1: " + self.target1 + ", Target2: " + self.target2)
-        print("Loop Entry: " + str(self.is_loop_entry) + ", Loop Exit: " + str(self.is_loop_exit))
+        print("Loop Entry: " + str(self.is_loop_entry) + ", Loop Exit: " + str(self.is_loop_exit) + ", Loop Depth: " + str(self.loop_depth))
         if(print_instructions == True):
             print("Instructions: ")
             for instr in self.instructions:

@@ -122,9 +122,11 @@ vector.body335:                                   ; preds = %vector.body335, %fo
   %14 = add nuw nsw i64 %13, %8
   %15 = getelementptr inbounds [1048576 x float], [1048576 x float]* @stream_in, i64 0, i64 %14
   %16 = bitcast float* %15 to <16 x float>*
-  %wide.load341 = load <16 x float>, <16 x float>* %16, align 4, !tbaa !2
+  ;wide.load341 stores value of stream_in[%14]
+  %wide.load341 = load <16 x float>, <16 x float>* %16, align 4, !tbaa !2             
   %17 = getelementptr inbounds [768 x float], [768 x float]* @rf0, i64 0, i64 %11
   %18 = bitcast float* %17 to <16 x float>*
+  ;%wide.load342 holds value of rf0[%11] -> %11 is index337 (lane2) + %9 (k2*NUM_SIMD_LANES)
   %wide.load342 = load <16 x float>, <16 x float>* %18, align 16, !tbaa !2
   %19 = fmul <16 x float> %wide.load341, %wide.load342
   %20 = getelementptr inbounds [768 x float], [768 x float]* @rf0, i64 0, i64 %10
