@@ -154,6 +154,14 @@ class Instruction:
             print("Instr not recognized: " + self.string)
             return
 
+
+    """
+    Not going to comment explicitly all of how these were created.  I just followed the llvm 
+    reference documentation for each instruction.  Call is not fully implemented **yet** because
+    I am not sure how it will be implemented as assembly, becasue it is calling memset and memcpy,
+    if need be, I will add parsing for these two explicitly but it is not high on the to-do list right now,
+    and will be implemented when I do the translation to assembly
+    """
     #for now, only implementing ret and br, I don't think
     #the cpu instructions will be complicated enough to require the others
     def ParseTerminatorInstr(self):
@@ -201,7 +209,7 @@ class Instruction:
             self.args.flags.append(self.tokens[token_idx])
             token_idx += 1
         #if it is a scalar instruction
-        token_idx = self.args.data_type.Get_Type(self.tokens, token_idx)
+        token_idx = self.args.result_type.Get_Type(self.tokens, token_idx)
         token_idx += 1
         self.args.op1 = self.tokens[token_idx]
         token_idx += 2      #there will be a comma that needs to be skipped
@@ -265,11 +273,11 @@ class Instruction:
                 self.args.instr = 'store'
             elif('load' in self.tokens):
                 self.args.instr = 'load'
-                self.args.value = self.tokens[0]
+                self.args.result = self.tokens[0]
             elif('alloca' in self.tokens):
                 self.args.instr = 'alloca'
-                self.args.value = self.tokens[0]
-                self.args.value_type.Get_Type(self.tokens, 3)
+                self.args.result = self.tokens[0]
+                self.args.result_type.Get_Type(self.tokens, 3)
                 idx = self.tokens.index(',')
                 idx = Arg_Type().Get_Type(self.tokens, idx + 1)
                 self.args.alloca_num_elements = self.tokens[idx + 1]
@@ -280,9 +288,9 @@ class Instruction:
             idx = 0
             while(self.tokens[idx] not in self.type_tokens):
                 idx += 1
-            idx = self.args.value_type.Get_Type(self.tokens, idx)
+            idx = self.args.result_type.Get_Type(self.tokens, idx)
             if(self.args.instr == 'store'):
-                self.args.value = self.tokens[idx + 1]
+                self.args.result = self.tokens[idx + 1]
             idx = self.tokens.index(',')
             idx += 1
             idx = self.args.pointer_type.Get_Type(self.tokens,idx)
@@ -315,7 +323,7 @@ class Instruction:
                 self.args.flags.append(self.tokens[idx])
                 idx += 1
             self.args.comparison = self.tokens[idx]
-            idx = self.args.data_type.Get_Type(self.tokens, idx + 1)
+            idx = self.args.result_type.Get_Type(self.tokens, idx + 1)
             self.args.op1 = self.tokens[idx + 1]
             self.args.op2 = self.tokens[idx + 2]
         elif('phi' in self.tokens):
@@ -328,7 +336,7 @@ class Instruction:
             while(self.tokens[idx+1] not in self.type_tokens):
                 self.args.flags.append(self.tokens[idx])
                 idx += 1
-            idx = self.args.data_type.Get_Type(self.tokens, idx)
+            idx = self.args.result_type.Get_Type(self.tokens, idx)
             idx += 1    #puts us on the [ of phi block
             while(idx < len(self.tokens)):
                 phi_b = Phi_Block(self.tokens[idx + 1], self.tokens[idx + 3])

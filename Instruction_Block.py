@@ -6,21 +6,21 @@ class Instruction_Block:
     blocks of instructions in the control flow
     """
     def __init__(self, name = "DEFUALT", start_instr = -1, block_num = -1):
-        self.start_idx = start_instr
-        self.end_idx = -1
-        self.block_num = block_num
-        self.start_line = -1
-        self.end_line = -1
-        self.instructions = []
-        self.name = name
-        self.target1 = "DEFAULT"
-        self.target2 = "DEFAULT"
-        self.entry_blocks = []
-        self.is_llvm_loop = False
-        self.is_loop_entry = False
-        self.is_loop_exit = False
-        self.loop_depth = 0
-        self.block_order = -1
+        self.start_idx = start_instr        #first index in of the block
+        self.end_idx = -1                   #index of final instruction of the block
+        self.block_num = block_num          #number of the block (as ordered in file, not in exection order)
+        self.start_line = -1                #first line in file (not instruction index)
+        self.end_line = -1                  #last line in file (not instruction index)
+        self.instructions = []              #list of instructions in the block
+        self.name = name                    #name of the block (ie the header)
+        self.target1 = "DEFAULT"            #first successor
+        self.target2 = "DEFAULT"            #second successor
+        self.entry_blocks = []              #the blocks that enter into this block from a branch (ie only filled if block as phi statement)
+        self.is_llvm_loop = False           #if llvm ir marked this as a loop (doesn't necessarily mean it is a loop, irrelevant for now)
+        self.is_loop_entry = False          #if it is the first block in a loop
+        self.is_loop_exit = False           #if it is the final block in a loop
+        self.loop_depth = 0                 #depth of the loop (level of nested loops)
+        self.block_order = -1               #the index in the ordered block (ie execution order)
         
         self.exit_idx = -1          #if we are an entry block, index of the block we exit from
         self.entry_idx = -1         #if we are a closing block, index of the block we enter to
@@ -28,6 +28,10 @@ class Instruction_Block:
         self.target2_idx = -1       #block index of target2
 
     def Get_Block(self, instructions: List[parser.Instruction]):
+        """
+        Fills in relevant information about the instructions in a block, and 
+        the successors of the block
+        """
         idx = self.start_idx
         self.start_line = instructions[idx].line_num
         if(self.start_idx != instructions[idx].instr_num):
@@ -60,6 +64,9 @@ class Instruction_Block:
         return idx + 1
 
     def Get_Block_Offsets(self):
+        """
+        Gets the offset from the base of the block for each instruction
+        """
         initial_instruction_num = self.instructions[0].instr_num
         prev_offset = -1
         for instr in self.instructions:
@@ -90,6 +97,5 @@ class Instruction_Block:
             print("\tSucessors: " + self.target1 + ", " + self.target2)
         else:
             print("\tSucessors: " + self.target1)
-        print("\tLoop Entry: " + str(self.is_loop_entry) + ", Loop Exit: " + str(self.is_loop_exit) + ", Loop Depth: " + str(self.loop_depth))
-
+        print("\tLoop Entry: " + str(self.is_loop_entry) + ", Loop Exit: " + str(self.is_loop_exit) + ", Loop Depth: " + str(self.loop_depth))        
 

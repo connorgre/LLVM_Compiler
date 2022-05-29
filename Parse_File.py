@@ -4,7 +4,7 @@ import Instruction_Block as ib
 
 class Parsed_File:
     """
-    parses an llvm ir file
+    parses an llvm ir file, and breaks it into blocks, and orders those blocks by execution order
     """
     def __init__(self, filename):
         self.filename = filename
@@ -17,10 +17,12 @@ class Parsed_File:
         self.Identify_Loops()
         self.Order_Loops()
         self.Get_Loop_Depth()
-
         return
 
     def Parse_File(self):
+        """
+        parses each instruction of the file
+        """
         file = open(self.filename, 'r')
         lines = file.readlines()
         line_num = 0
@@ -32,6 +34,9 @@ class Parsed_File:
                 instr_num += 1
 
     def Break_Into_Blocks(self):
+        """
+        Gets each block of instructions and fills in some relevant information about the block
+        """
         idx = 0
         block_idx = 0
         while(idx < len(self.Instructions)):
@@ -53,9 +58,11 @@ class Parsed_File:
                 block.target2_idx = self.block_names.index(block.target2)
         return
     
-    #DFS from each block, if it reaches itself, it is the start of a loop
-    #this marks blocks as entry and exits of loops
     def Identify_Loops(self):
+        """
+        DFS from each block, if it reaches itself in the search, it is the start of a loop
+        this marks blocks as entry and exits of loops
+        """
         visited = ["Not Visited" for i in range(len(self.block_names))]
         for block in self.blocks:
             block_idx = block.block_num
@@ -67,6 +74,9 @@ class Parsed_File:
         return
         
     def doDFS(self, stack, visited, idx):
+        """
+        Helper function for Identify Loops, does the DFS
+        """
         adjacent = []
         adjacent.append(self.blocks[idx].target1_idx)
         if(self.blocks[idx].target1_idx != self.blocks[idx].target2_idx):
@@ -88,6 +98,10 @@ class Parsed_File:
         stack.pop()
 
     def Order_Loops(self):
+        """
+        Orders the loops based on the above DFS search. Starts at the entry block, and 
+        traverses through the list of blocks based on the successors in the branch statement
+        """
         if(self.blocks[0].name != "entry"):
             print("Error, block 0 is not entry block")
         if(self.blocks[0].target1_idx != self.blocks[0].target2_idx):
@@ -120,6 +134,10 @@ class Parsed_File:
                 idx = entry_idx-1
         
     def Get_Loop_Depth(self):
+        """
+        Gets the loop depth (level of nested loops)
+        program starts at 0, and the deepest nested loop will be a higher number
+        """
         depth = 0
         for idx in self.block_order:
             if(self.blocks[idx].is_loop_entry):
@@ -149,4 +167,19 @@ class Parsed_File:
                 else:
                     self.blocks[i].Print_Block()
 
+    def Get_Order_Idx(self, idx):
+        return self.blocks[self.block_order[idx]]
+
+    def Print_Names(self):
+        for idx in range(len(self.blocks)):
+            print("'" + self.Get_Order_Idx(idx).name + "',")
     
+    def Print_Entries(self):
+        for idx in range(len(self.blocks)):
+            if(self.Get_Order_Idx(idx).is_loop_entry):
+                print("'" + self.Get_Order_Idx(idx).name + "',")
+
+    def Print_Exits(self):
+        for idx in range(len(self.blocks)):
+            if(self.Get_Order_Idx(idx).is_loop_exit):
+                print("'" + self.Get_Order_Idx(idx).name + "',")

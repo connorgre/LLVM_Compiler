@@ -6,6 +6,7 @@ class Instruction_Args:
         self.instr = "DEFAULT"
         self.instr_type = "DEFAULT"
         self.flags = []
+        self.result = "DEFAULT"
     def printArgs(self):
         print("\tInstruction: " + self.instr + ", type: " + self.instr_type)
         print("\tFlags: " + ' '.join(self.flags))
@@ -47,14 +48,14 @@ class R_2op_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
         self.result = "DEFAULT"
-        self.data_type = Arg_Type()
+        self.result_type = Arg_Type()
         self.op1 = "DEFAULT"
         self.op2 = "DEFAULT"
     def printArgs(self):
         super().printArgs()
         print("\tResult: " + self.result)
         print("\top1: " + self.op1 + ", op2: " + self.op2)
-        print("\tData Type: " + self.data_type.printType())
+        print("\tData Type: " + self.result_type.printType())
 
 class Cmp_Args(R_2op_Args):
     def __init__(self):
@@ -68,12 +69,12 @@ class Phi_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
         self.result = "DEFAULT"
-        self.data_type = Arg_Type()
+        self.result_type = Arg_Type()
         self.block_list = []
     def printArgs(self):
         super().printArgs()
         print("\tResult: " + self.result)
-        print("\tData Type: " + self.data_type.printType())
+        print("\tData Type: " + self.result_type.printType())
         for i in self.block_list:
             print("\t" + i.printPhiBlock())
 class Phi_Block():
@@ -122,8 +123,8 @@ class Memory_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
         self.instr_type = "Memory"
-        self.value = "DEFUALT"
-        self.value_type = Arg_Type()
+        self.result = "DEFUALT"
+        self.result_type = Arg_Type()
         self.pointer = "DEFUALT"
         self.pointer_type = Arg_Type()
         self.alloca_num_elements = "DEFAULT"
@@ -131,7 +132,7 @@ class Memory_Args(Instruction_Args):
         self.volatile = False
     def printArgs(self):
         super().printArgs()
-        print("\tValue: " + self.value + ", type: " + self.value_type.printType())
+        print("\tValue: " + self.result + ", type: " + self.result_type.printType())
         print("\tPointer: " + self.pointer + ", type: " + self.pointer_type.printType())
         print("\tAlignment: " + str(self.alignment))
         print("\tVolatile: " + str(self.volatile))
