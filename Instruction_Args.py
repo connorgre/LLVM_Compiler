@@ -1,3 +1,4 @@
+from ast import Call
 from Arg_Type import *
 import Parser as p
 #instructions of type <result> = <instr> <flags> <type> <arg1>, <arg2>
@@ -11,23 +12,30 @@ class Instruction_Args:
         print("\tInstruction: " + self.instr + ", type: " + self.instr_type)
         print("\tFlags: " + ' '.join(self.flags))
 
-#<result> = [tail | musttail | notail ] call [fast-math flags] [cconv] [ret attrs] [addrspace(<num>)] <ty>|<fnty> <fnptrval>(<function args>) [fn attrs] [ operand bundles ]
-
+#supports the arguments for llvm.memset and llvm.memcpy
+#a note:
+#for the memset call, llvm ir explicitly casts the [768 x float] array to a float*
+#I may need to more explicitly add support for this, but for now, I am not going to, and
+#just assume that an array is a pointer.  
+#This may change when doing the ir to asm translation
 class Call_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
+        self.function = "DEFUALT"
         self.result = "DEFAULT"
         self.result_type = Arg_Type()
-        self.tail_flags = []
-        self.math_flags = []
-        self.cconv = "DEFAULT"
-        self.ret_attrs = []
-        self.addrspace = "DEFAULT"
-        self.ty = None
-        self.fnty = None
-        self.fnptrval = None
-        self.fn_attrs = []
-        self.operand_bundles = []
+        self.value = "DEFAULT"
+        self.value_type = Arg_Type()
+        self.dereferenceable = -1
+        self.align = -1
+        self.length = -1
+        self.non_null = False
+        self.is_volatile = False
+
+class MemsetArgs(Call_Args):
+    def __init__(self):
+        Call_Args.__init__(self)
+        self.pointer_offset = -1
 
 class Bitcast_Args(Instruction_Args):
     def __init__(self):

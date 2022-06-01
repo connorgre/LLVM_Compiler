@@ -11,3 +11,4 @@ class DFG_Node:
         self.assignment = (-1, -1)                  #tuple with (block, instr) -- the block and offset into the block the var is assigned
         self.uses = []                              #list of (block, instr) -- locations var is used 
         self.is_loop_control = False                #true if this is a register related to loop control (ie loop index)
+        self.is_phi = False

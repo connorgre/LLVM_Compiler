@@ -32,7 +32,7 @@ class Instruction:
     def __init__(self, string, line_num=-1, instr_num = -1):
         self.string = string
         self.tokens = []
-        self.args = None
+        self.args:Instruction_Args = None
         self.instruction_type = "DEFAULT"
         self.breakUpInput()
         self.parseTokens()
@@ -43,7 +43,7 @@ class Instruction:
     #tokenizes the input string
     def breakUpInput(self):
         #special characters in llvm ir, will get their own tokens
-        token_breaks = [' ','[', ']', '<', '>', ',',':',';','#','*', '\n', '!']
+        token_breaks = [' ','[', ']', '<', '>', ',',':',';','#','*', '\n', '!','(',')']
         currtok = ""
         str_idx = 0
         in_quote = 0
@@ -344,22 +344,87 @@ class Instruction:
                 idx += 6       #puts on [ of next block
         elif('call' in self.tokens):
             #<result> = [tail | musttail | notail ] call [fast-math flags] [cconv] [ret attrs] [addrspace(<num>)] <ty>|<fnty> <fnptrval>(<function args>) [fn attrs] [ operand bundles ]
-            # i think i can ignore [fast-math flags], [cconv], <fnty>, 
-            print("***call not finished implementing***")
+            # only implementing @llvm.memset.p0i8.i64 and @llvm.memcpy.p0i8.p0i8.i64
+            # these are the only ones in the program that appear to have any effect
+            if("@llvm.memcpy.p0i8.p0i8.i64" != self.tokens[2] and "@llvm.memset.p0i8.i64" != self.tokens[2]):
+                print("only memset and memcpy call implemented")
+                return
+            if(self.tokens[2] == "@llvm.memcpy.p0i8.p0i8.i64"):
+                self.ParseMemcpy()
+            else:
+                self.ParseMemset()
             idx = 0
-            self.args = Call_Args()
-            self.instr = 'call'
-            self.instr_type = "Function Call"
-            if(self.tokens[1] == '='):
-                self.args.result = self.tokens[0]
-                idx = 2
-            while(self.tokens[idx] != 'call'):
-                self.args.tail_flags.append(self.tokens[idx])
-                idx += 1
-            if(self.tokens[idx] != 'call'):
-                print("error, should be call")
-            idx += 1  
+            self.args.instr = 'call'
+            self.args.instr_type = "Function Call"
+            self.args.function = self.tokens[2]
+            #assumes src and dest have same alignment/ dereferencable
+            if("align" in self.tokens):
+                idx = self.tokens.index("align")
+                self.args.align = int(self.tokens[idx + 1])
+            if("dereferenceable" in self.tokens):
+                idx = self.tokens.index("dereferenceable")
+                self.args.dereferenceable = int(self.tokens[idx + 2])
+            if("nonnull" in self.tokens):
+                self.args.non_null = True
+            
         return
+
+    #call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 16 dereferenceable(64) <dest>, i8* nonnull align 16 dereferenceable(64) <source>, i64 <length>, i1 <volatile>)
+    def ParseMemcpy(self):
+        self.args = Call_Args()
+        idx = 4 #puts it at i8*
+        idx = self.args.result_type.Get_Type(self.tokens, idx)
+
+        #go forward until we get to the dest variable
+        #(so skip all the pointer referencing info)
+        while(self.tokens[idx][0] != "@" and self.tokens[idx][0] != "%"):
+            idx += 1
+        self.args.result = self.tokens[idx]
+        idx += 2
+        idx = self.args.value_type.Get_Type(self.tokens, idx)
+        while(self.tokens[idx][0] != "@" and self.tokens[idx][0] != "%"):
+            idx += 1
+        self.args.value = self.tokens[idx]
+        idx += 3
+        self.args.length = int(self.tokens[idx])
+        idx += 3
+        self.args.is_volatile = self.tokens[idx]
+
+
+    #call void @llvm.memset.p0i8.i64(i8* nonnull align 16 dereferenceable(1024) bitcast (float* getelementptr inbounds ([768 x float], [768 x float]* @rf0, i64 0, i64 512) to i8*), i8 0, i64 1024, i1 false)
+    def ParseMemset(self):
+        self.args = MemsetArgs()
+        if("getelementptr" in self.tokens):
+            idx = self.tokens.index("getelementptr")
+        else:
+            print("memset parsing error, expected a getelementptr call")
+            return
+        #scan forward until the start of the getelement ptr args
+        while(self.tokens[idx] != "("):
+            idx += 1
+        idx += 1
+        idx = Arg_Type().Get_Type(self.tokens, idx)
+        idx += 2
+        idx = self.args.result_type.Get_Type(self.tokens, idx)
+        idx += 1
+        self.args.result = self.tokens[idx]
+        idx += 6
+        self.args.pointer_offset = int(self.tokens[idx])    #right now we are at 512 in the example above
+        while(self.tokens[idx] != ',' and idx < len(self.tokens)):
+            idx += 1
+        idx += 1
+        idx = self.args.value_type.Get_Type(self.tokens,idx)
+        if(self.args.value_type.printType() != "i8"):
+            print("error, memset should only use i8")
+        idx += 1
+        self.args.value = self.tokens[idx]
+        idx += 3
+        self.args.length = int(self.tokens[idx])
+        idx += 3
+        self.args.is_volatile = self.tokens[idx]
+
+
+
 
     def ParseZeroInitializer(self):
         self.instruction_type = "Zero Initializer"

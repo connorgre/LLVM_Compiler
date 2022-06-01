@@ -33,7 +33,7 @@ define dso_local i32 @main(i32 %argc, i8** nocapture readnone %argv) local_unnam
 entry:
   br label %for.cond1.preheader
 
-;1
+;1 This is doing the first loop of rf0[rf_idx1] = 0.0, It is not doing it as a loop
 for.cond1.preheader:                              ; preds = %for.cond.cleanup129, %entry
   %indvar310 = phi i64 [ 0, %entry ], [ %indvar.next311, %for.cond.cleanup129 ]
   call void @llvm.memset.p0i8.i64(i8* nonnull align 16 dereferenceable(1024) bitcast (float* getelementptr inbounds ([768 x float], [768 x float]* @rf0, i64 0, i64 512) to i8*), i8 0, i64 1024, i1 false)
@@ -63,7 +63,7 @@ for.cond52.preheader:                             ; preds = %for.cond20.preheade
   %3 = shl nsw i64 %indvar266, 13
   br label %for.cond56.preheader
 
-;6
+;6 this is doing the rf0[rf_idx2] = hbm0[hbm_idx] loop
 for.cond20.preheader:                             ; preds = %for.cond20.preheader, %for.cond16.preheader
   %indvar = phi i64 [ 0, %for.cond16.preheader ], [ %indvar.next, %for.cond20.preheader ]
   %4 = shl nuw nsw i64 %indvar, 4

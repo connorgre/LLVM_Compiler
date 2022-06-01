@@ -11,7 +11,7 @@ class Instruction_Block:
         self.block_num = block_num          #number of the block (as ordered in file, not in exection order)
         self.start_line = -1                #first line in file (not instruction index)
         self.end_line = -1                  #last line in file (not instruction index)
-        self.instructions = []              #list of instructions in the block
+        self.instructions:List[parser.Instruction] = []              #list of instructions in the block
         self.name = name                    #name of the block (ie the header)
         self.target1 = "DEFAULT"            #first successor
         self.target2 = "DEFAULT"            #second successor
