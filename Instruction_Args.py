@@ -1,16 +1,20 @@
 from ast import Call
 from Arg_Type import *
 import Parser as p
-#instructions of type <result> = <instr> <flags> <type> <arg1>, <arg2>
+
+
 class Instruction_Args:
     def __init__(self):
         self.instr = "DEFAULT"
         self.instr_type = "DEFAULT"
         self.flags = []
         self.result = "DEFAULT"
+        self.vars_used = []     #this is only for the dfg to make accessing variable names easier
     def printArgs(self):
         print("\tInstruction: " + self.instr + ", type: " + self.instr_type)
         print("\tFlags: " + ' '.join(self.flags))
+    def getVarsUsed(self):
+        return
 
 #supports the arguments for llvm.memset and llvm.memcpy
 #a note:
@@ -31,11 +35,19 @@ class Call_Args(Instruction_Args):
         self.length = -1
         self.non_null = False
         self.is_volatile = False
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        self.vars_used.append(self.value)
+        self.vars_used.append(str(self.align))
+        self.vars_used.append(str(self.length))
 
 class MemsetArgs(Call_Args):
     def __init__(self):
         Call_Args.__init__(self)
         self.pointer_offset = -1
+    def getVarsUsed(self):
+        super().getVarsUsed()
+        self.vars_used.append(str(self.pointer_offset))
 
 class Bitcast_Args(Instruction_Args):
     def __init__(self):
@@ -51,6 +63,10 @@ class Bitcast_Args(Instruction_Args):
         print("\tResult: " + self.result)
         print("\tOperand: " + self.op1)
         print("\tFrom: " + self.op1_type.printType() + ", to " + self.result_type.printType())
+    
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        self.vars_used.append(self.op1)
 
 class R_2op_Args(Instruction_Args):
     def __init__(self):
@@ -64,6 +80,11 @@ class R_2op_Args(Instruction_Args):
         print("\tResult: " + self.result)
         print("\top1: " + self.op1 + ", op2: " + self.op2)
         print("\tData Type: " + self.result_type.printType())
+    
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        self.vars_used.append(self.op1)
+        self.vars_used.append(self.op2)
 
 class Cmp_Args(R_2op_Args):
     def __init__(self):
@@ -72,19 +93,28 @@ class Cmp_Args(R_2op_Args):
     def printArgs(self):
         super().printArgs()
         print("\tComparison Type: " + self.comparison)
+    def getVarsUsed(self):
+        super().getVarsUsed()
 
 class Phi_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
         self.result = "DEFAULT"
         self.result_type = Arg_Type()
-        self.block_list = []
+        self.block_list:Phi_Block = []
     def printArgs(self):
         super().printArgs()
         print("\tResult: " + self.result)
         print("\tData Type: " + self.result_type.printType())
         for i in self.block_list:
             print("\t" + i.printPhiBlock())
+    
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        for block in self.block_list:
+            self.vars_used.append(block.value)
+
+
 class Phi_Block():
     def __init__(self, value=None, predecessor=None):
         self.value = value
@@ -106,6 +136,8 @@ class Ret_Args(Instruction_Args):
         super().printArgs()
         print("\tReturn value: " + self.ret_val)
         print("\tReturn type: " + self.ret_type.printType())
+    def getVarsUsed(self):
+        self.vars_used.append(self.ret_val)
 
 #for unconditional branch, condition == 'None', and use 'true_target'
 class Branch_Args(Instruction_Args):
@@ -124,6 +156,8 @@ class Branch_Args(Instruction_Args):
         print("\tTrue target: " + self.true_target)
         print("\tFalse target: " + self.false_target)
         print("Is Loop: " + str(self.is_loop) + ", Loop Info: " + self.loop_info)
+    def getVarsUsed(self):
+        self.vars_used.append(self.condition)
 
 #instructions are named for loads/stores
 #but alloca does not use pointer or pointer_type
@@ -145,6 +179,9 @@ class Memory_Args(Instruction_Args):
         print("\tAlignment: " + str(self.alignment))
         print("\tVolatile: " + str(self.volatile))
         print("\talloca numelements: " + str(self.alloca_num_elements))
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        self.vars_used.append(self.pointer)
 
 #will not be implementing the inrange attribute
 #will not be 
@@ -167,7 +204,12 @@ class GetElementPtr_Args(Instruction_Args):
         for i in range(len(self.index_type)):
             type_print += self.index_type[i].printType() + ' '
         print("Index Types: " + type_print)
-        print("Index Vals:  " + ' '.join(self.index_value)) 
+        print("Index Vals:  " + ' '.join(self.index_value))
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        self.vars_used.append(self.pointer)
+        for value in self.index_value:
+            self.vars_used.append(value)
 
 class ZeroInitializer_Args(Instruction_Args):
     def __init__(self):
@@ -181,6 +223,8 @@ class ZeroInitializer_Args(Instruction_Args):
         print("\tResult: " + self.result + ", Type: " + self.type.printType())
         print("\tAlignment: " + str(self.alignment))
         print("\tIs Global: " + str(self.is_global))
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
 
 class Header_Args(Instruction_Args):
     def __init__(self):

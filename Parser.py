@@ -153,6 +153,10 @@ class Instruction:
         else:
             print("Instr not recognized: " + self.string)
             return
+        #calling this here because it is a method to every arg class
+        #that fills it out for its own thing
+        if(self.args != None):
+            self.args.getVarsUsed()
 
 
     """

@@ -12,3 +12,16 @@ class DFG_Node:
         self.uses = []                              #list of (block, instr) -- locations var is used 
         self.is_loop_control = False                #true if this is a register related to loop control (ie loop index)
         self.is_phi = False
+        self.is_global = False
+
+    def Print_Node(self, extended=False):
+        print("Name: " + self.name)
+        print("Assigned: " + "Block=" + str(self.assignment[0]) + ", Idx=" + str(self.assignment[1]))
+        uses = ""
+        for use in self.uses:
+            uses += "(" + str(use[0]) + "," + str(use[1]) + ")" + "; "
+        print("Uses: " + uses)
+        if(extended):
+            print("Loop Control: " + str(self.is_loop_control))
+            print("Phi Assigned: " + str(self.is_phi))
+            print("Global: " + str(self.is_global))
