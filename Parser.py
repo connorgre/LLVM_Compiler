@@ -329,7 +329,7 @@ class Instruction:
             self.args.comparison = self.tokens[idx]
             idx = self.args.result_type.Get_Type(self.tokens, idx + 1)
             self.args.op1 = self.tokens[idx + 1]
-            self.args.op2 = self.tokens[idx + 2]
+            self.args.op2 = self.tokens[idx + 3]
         elif('phi' in self.tokens):
             self.args = Phi_Args()
             self.args.result = self.tokens[0]

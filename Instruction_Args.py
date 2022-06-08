@@ -157,7 +157,8 @@ class Branch_Args(Instruction_Args):
         print("\tFalse target: " + self.false_target)
         print("Is Loop: " + str(self.is_loop) + ", Loop Info: " + self.loop_info)
     def getVarsUsed(self):
-        self.vars_used.append(self.condition)
+        if(self.condition != "None"):
+            self.vars_used.append(self.condition)
 
 #instructions are named for loads/stores
 #but alloca does not use pointer or pointer_type
