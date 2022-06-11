@@ -370,7 +370,6 @@ class Instruction:
                 self.args.dereferenceable = int(self.tokens[idx + 2])
             if("nonnull" in self.tokens):
                 self.args.non_null = True
-            
         return
 
     #call void @llvm.memcpy.p0i8.p0i8.i64(i8* nonnull align 16 dereferenceable(64) <dest>, i8* nonnull align 16 dereferenceable(64) <source>, i64 <length>, i1 <volatile>)

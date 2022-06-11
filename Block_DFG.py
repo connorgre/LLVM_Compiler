@@ -1,6 +1,7 @@
 from typing import List
 
-from numpy import var
+from matplotlib import lines
+
 import DFG_Node as dfg_node
 import Instruction_Block as ib
 import networkx as nx
@@ -48,27 +49,32 @@ class Block_DFG:
         """
         Makes a networkx graph from this block
         """
-        block_vars = self.outer_vars
+        block_vars = self.outer_vars.copy()
         block_vars.extend(self.inner_vars)
         imm_num = 0
         for var in block_vars:
+            if(var.instruction.args.instr == 'call'):
+                print(var.name)
+                print(var.assignment)
+                print(var.uses)
+                print(var.dependencies)
+                print(var.immediates)
             for pos in var.uses:
                 to_var = dfg.Get_Node_Block_Offset(pos)
                 if(to_var is not None):
                     #don't care to print assignement of variables outside block from variable outside block
                     if(var in self.outer_vars and to_var not in self.inner_vars):
                         continue
-
                     #use var.name[1:], because llvm variables start with %, which causes a bug
                     #in the graphviz library where it reads the % as a special character and 
                     #causes an error, so simple solution is to just ignore it for the graph
                     self.graph.add_edge(var.name[1:] + "_v",to_var.name[1:] + "_v")
-                    if(show_imm):
-                        for imm in var.immediates:
-                            #purpose of imm_num is to create a unique node for each immediate, makes more sense on the
-                            #graph
-                            self.graph.add_edge(imm + "_i" + str(imm_num),var.name[1:] + "_v")
-                            imm_num += 1
+            if(show_imm and var not in self.outer_vars):
+                for imm in var.immediates:
+                    #purpose of imm_num is to create a unique node for each immediate, makes more sense on the
+                    #graph
+                    self.graph.add_edge(imm + "_i" + str(imm_num),var.name[1:] + "_v")
+                    imm_num += 1        
 
     def Show_Graph(self):
         """
@@ -84,9 +90,7 @@ class Block_DFG:
         """
         color_array = []
         for node in self.graph.nodes:
-            if("_i" in node):
-                color_array.append((1,0,0))
-            elif("_s" in node):
+            if("_s" in node):
                 color_array.append((0,1,1))
             elif(("%" + node[:-2]) in [var.name for var in self.inner_vars]):
                 color_array.append((0,1,0))
@@ -94,9 +98,21 @@ class Block_DFG:
                 color_array.append((0,0,1))
             elif("@" + node[:-2] in [var.name for var in self.outer_vars]):
                 color_array.append((1,0,1))
+            elif("_i" in node):
+                color_array.append((1,0,0))
             else:
                 color_array.append((1, 1, 0))
         plt.title(self.block.name + ", " + str(self.block_num))
+
+        no_uses = lines.Line2D([], [], color=(0,1,1), marker='o', markersize=10, label='no use (call, br, store)')
+        def_in = lines.Line2D([], [], color=(0,1,0), marker='o', markersize=10, label='defined inside')
+        def_out = lines.Line2D([], [], color=(0,0,1), marker='o', markersize=10, label='defined outside')
+        def_glob = lines.Line2D([], [], color=(1,0,1), marker='o', markersize=10, label='defined globally')
+        imm = lines.Line2D([], [], color=(1,0,0), marker='o', markersize=10, label='immediate')
+        use_out = lines.Line2D([], [], color=(1,1,0), marker='o', markersize=10, label='used outside')
+
+        plt.legend(handles=[no_uses, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
+
         pos = graphviz_layout(self.graph, prog='dot')
         nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)
         plt.show()

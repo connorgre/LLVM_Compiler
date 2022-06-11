@@ -16,6 +16,7 @@ class Data_Flow_Graph:
     The data flow graph for the file
     """
     def __init__(self, parsed_file):
+        print('dfg creation*****')
         self.variables : List[dfg_node.DFG_Node] = []        #holds all variables (includes global)
         self.global_variables : List[dfg_node.DFG_Node] = [] #holds only global variables
         self.par_file : pf.Parsed_File = parsed_file
@@ -83,14 +84,13 @@ class Data_Flow_Graph:
                         print("Error, expected call br or store, got: " + instr.args.instr)
                         continue
                     if(use_node == None):
-                        new_node = dfg_node.DFG_Node(instr)
+                        use_node = dfg_node.DFG_Node(instr)
                         #num_new ensures that we get unique names
-                        new_node.name = "%" + instr.args.instr + "_" + str(num_new) + "_s"
+                        use_node.name = "%" + instr.args.instr + "_" + str(num_new) + "_s"
                         num_new += 1
-                        new_node.assignment = use
-                        use_node = new_node
-                    new_node.dependencies.append(var.assignment)
-                    self.variables.append(new_node)
+                        use_node.assignment = use
+                        self.variables.append(use_node)
+                    use_node.dependencies.append(var.assignment)
                     
                     
 
@@ -163,7 +163,6 @@ class Data_Flow_Graph:
             for use in var.uses:
                 use_var = self.Get_Node_Block_Offset(use)
                 if(use_var == None):
-                    #call br and store don't have variable assignment (do have use though)
                     if(self.Get_Instruction_Block_Offset(use).args.instr not in ["call", "br", "store"]):
                         print("Error, use_var shouldn't be None, " + str(var.name) + ", " + str(use))
                     continue

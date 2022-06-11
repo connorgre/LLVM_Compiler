@@ -38,8 +38,8 @@ class Call_Args(Instruction_Args):
     def getVarsUsed(self):
         self.vars_used.append(str(self.result))
         self.vars_used.append(str(self.value))
-        self.vars_used.append(str(self.align))
         self.vars_used.append(str(self.length))
+        #self.vars_used.append(str(self.align))
 
 class MemsetArgs(Call_Args):
     def __init__(self):
