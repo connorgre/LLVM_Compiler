@@ -5,6 +5,12 @@ import Parse_File as pf
 import DFG_Node as dfg_node
 import Block_DFG as b_dfg
 
+
+
+"""
+The naming may be a bit weird, because I decided halfway through that 'node' is a better
+descriptor than 'variable', so they are used somewhat interchangeably
+"""
 class Data_Flow_Graph:
     """
     The data flow graph for the file
@@ -17,6 +23,8 @@ class Data_Flow_Graph:
         self.Get_All_Variables()
         self.Get_Uses()
         self.Get_Dependencies()
+        self.Create_Other_Nodes()
+        self.Get_Immediates()
         self.Get_All_Block_DFGs()
         
     def Get_All_Variables(self):
@@ -57,6 +65,35 @@ class Data_Flow_Graph:
                     node.is_global = True
                     self.variables.append(node)
                     self.global_variables.append(node)
+
+    def Create_Other_Nodes(self):
+        """
+        Creates nodes used in store, call, and branch.  These need to be handled specially, since they are the only instructions
+        That use variables without writing to anything.  They still need to be tracked as dependencies for the instructions though
+        so we create 'fake' nodes that have no uses, but do have dependencies
+        """
+        num_new = 0
+        for var in self.variables:
+            for use in var.uses:
+                block = self.par_file.Get_Order_Idx(use[0])
+                instr = block.instructions[use[1]]
+                use_node = self.Get_Node_Block_Offset(use)
+                if(use_node == None or len(use_node.uses) == 0):
+                    if(instr.args.instr not in ['call', 'br', 'store']):
+                        print("Error, expected call br or store, got: " + instr.args.instr)
+                        continue
+                    if(use_node == None):
+                        new_node = dfg_node.DFG_Node(instr)
+                        #num_new ensures that we get unique names
+                        new_node.name = "%" + instr.args.instr + "_" + str(num_new) + "_s"
+                        num_new += 1
+                        new_node.assignment = use
+                        use_node = new_node
+                    new_node.dependencies.append(var.assignment)
+                    self.variables.append(new_node)
+                    
+                    
+
 
     def Get_Var_Idx(self, name):
         """
@@ -126,11 +163,32 @@ class Data_Flow_Graph:
             for use in var.uses:
                 use_var = self.Get_Node_Block_Offset(use)
                 if(use_var == None):
-                    #call br and store don't have variable assignment, and thus don't 
+                    #call br and store don't have variable assignment (do have use though)
                     if(self.Get_Instruction_Block_Offset(use).args.instr not in ["call", "br", "store"]):
                         print("Error, use_var shouldn't be None, " + str(var.name) + ", " + str(use))
                     continue
                 use_var.dependencies.append(var.assignment)
+
+    def Get_Immediates(self):
+        """
+        Gets immidiate values used in assignment of each variable
+        This also error checks uses and dependencies
+        """
+        for var in self.variables:
+            for used in var.instruction.args.vars_used:
+                if(used[0] in ['%', '@']):
+                    used_node_idx = self.Get_Var_Idx(used)
+                    if(used_node_idx == -1):
+                        print("Error, " + used + ", not in variables")
+                        continue
+                    used_node = self.variables[used_node_idx]
+                    if((used_node.assignment not in var.dependencies) and (used != var.name)):
+                        print("Error, " + used + ", should be in dependencies")                       
+                elif(used.isnumeric() == False):
+                    print("Error, " + used + ", shoudl be a number \
+                        (may cause error if its a float, just fix this error check if thats the case)")
+                else:
+                    var.immediates.append(used)
 
 
     def Get_All_Block_DFGs(self):

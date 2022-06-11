@@ -36,8 +36,8 @@ class Call_Args(Instruction_Args):
         self.non_null = False
         self.is_volatile = False
     def getVarsUsed(self):
-        self.vars_used.append(self.result)
-        self.vars_used.append(self.value)
+        self.vars_used.append(str(self.result))
+        self.vars_used.append(str(self.value))
         self.vars_used.append(str(self.align))
         self.vars_used.append(str(self.length))
 
@@ -65,8 +65,8 @@ class Bitcast_Args(Instruction_Args):
         print("\tFrom: " + self.op1_type.printType() + ", to " + self.result_type.printType())
     
     def getVarsUsed(self):
-        self.vars_used.append(self.result)
-        self.vars_used.append(self.op1)
+        self.vars_used.append(str(self.result))
+        self.vars_used.append(str(self.op1))
 
 class R_2op_Args(Instruction_Args):
     def __init__(self):
@@ -82,9 +82,9 @@ class R_2op_Args(Instruction_Args):
         print("\tData Type: " + self.result_type.printType())
     
     def getVarsUsed(self):
-        self.vars_used.append(self.result)
-        self.vars_used.append(self.op1)
-        self.vars_used.append(self.op2)
+        self.vars_used.append(str(self.result))
+        self.vars_used.append(str(self.op1))
+        self.vars_used.append(str(self.op2))
 
 class Cmp_Args(R_2op_Args):
     def __init__(self):
@@ -112,7 +112,7 @@ class Phi_Args(Instruction_Args):
     def getVarsUsed(self):
         self.vars_used.append(self.result)
         for block in self.block_list:
-            self.vars_used.append(block.value)
+            self.vars_used.append(str(block.value))
 
 
 class Phi_Block():
@@ -137,7 +137,7 @@ class Ret_Args(Instruction_Args):
         print("\tReturn value: " + self.ret_val)
         print("\tReturn type: " + self.ret_type.printType())
     def getVarsUsed(self):
-        self.vars_used.append(self.ret_val)
+        self.vars_used.append(str(self.ret_val))
 
 #for unconditional branch, condition == 'None', and use 'true_target'
 class Branch_Args(Instruction_Args):
@@ -158,7 +158,7 @@ class Branch_Args(Instruction_Args):
         print("Is Loop: " + str(self.is_loop) + ", Loop Info: " + self.loop_info)
     def getVarsUsed(self):
         if(self.condition != "None"):
-            self.vars_used.append(self.condition)
+            self.vars_used.append(str(self.condition))
 
 #instructions are named for loads/stores
 #but alloca does not use pointer or pointer_type
@@ -181,8 +181,8 @@ class Memory_Args(Instruction_Args):
         print("\tVolatile: " + str(self.volatile))
         print("\talloca numelements: " + str(self.alloca_num_elements))
     def getVarsUsed(self):
-        self.vars_used.append(self.result)
-        self.vars_used.append(self.pointer)
+        self.vars_used.append(str(self.result))
+        self.vars_used.append(str(self.pointer))
 
 #will not be implementing the inrange attribute
 #will not be 
@@ -207,10 +207,10 @@ class GetElementPtr_Args(Instruction_Args):
         print("Index Types: " + type_print)
         print("Index Vals:  " + ' '.join(self.index_value))
     def getVarsUsed(self):
-        self.vars_used.append(self.result)
-        self.vars_used.append(self.pointer)
+        self.vars_used.append(str(self.result))
+        self.vars_used.append(str(self.pointer))
         for value in self.index_value:
-            self.vars_used.append(value)
+            self.vars_used.append(str(value))
 
 class ZeroInitializer_Args(Instruction_Args):
     def __init__(self):
@@ -225,7 +225,7 @@ class ZeroInitializer_Args(Instruction_Args):
         print("\tAlignment: " + str(self.alignment))
         print("\tIs Global: " + str(self.is_global))
     def getVarsUsed(self):
-        self.vars_used.append(self.result)
+        self.vars_used.append(str(self.result))
 
 class Header_Args(Instruction_Args):
     def __init__(self):
