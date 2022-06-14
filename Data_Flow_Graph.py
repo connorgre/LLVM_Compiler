@@ -81,7 +81,7 @@ class Data_Flow_Graph:
                 use_node = self.Get_Node_Block_Offset(use)
                 if(use_node == None or len(use_node.uses) == 0):
                     if(instr.args.instr not in ['call', 'br', 'store']):
-                        print("Error, expected call br or store, got: " + instr.args.instr)
+                        print("Error, expected call br or store, got: " + instr.args.instr + ", " + str(instr.line_num))
                         continue
                     if(use_node == None):
                         use_node = dfg_node.DFG_Node(instr)
@@ -184,8 +184,9 @@ class Data_Flow_Graph:
                     if((used_node.assignment not in var.dependencies) and (used != var.name)):
                         print("Error, " + used + ", should be in dependencies")                       
                 elif(used.isnumeric() == False):
-                    print("Error, " + used + ", shoudl be a number \
+                    print("Error, " + used + ", should be a number \
                         (may cause error if its a float, just fix this error check if thats the case)")
+                    print("\tVar: " + var.name + ", line: " + str(var.instruction.line_num))
                 else:
                     var.immediates.append(used)
 

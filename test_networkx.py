@@ -6,7 +6,7 @@ from networkx.drawing.nx_agraph import write_dot, graphviz_layout
 import sys
 
 def main(blocknum=3):
-    par = pf.Parsed_File('gcn.ll')
+    par = pf.Parsed_File('gcn2.ll')
     dfg = dfgm.Data_Flow_Graph(par)
 
     block = dfg.block_dfgs[blocknum]

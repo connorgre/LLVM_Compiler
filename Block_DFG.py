@@ -53,12 +53,6 @@ class Block_DFG:
         block_vars.extend(self.inner_vars)
         imm_num = 0
         for var in block_vars:
-            if(var.instruction.args.instr == 'call'):
-                print(var.name)
-                print(var.assignment)
-                print(var.uses)
-                print(var.dependencies)
-                print(var.immediates)
             for pos in var.uses:
                 to_var = dfg.Get_Node_Block_Offset(pos)
                 if(to_var is not None):

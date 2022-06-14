@@ -49,6 +49,26 @@ class MemsetArgs(Call_Args):
         super().getVarsUsed()
         self.vars_used.append(str(self.pointer_offset))
 
+# result = mul1 * mul2 + add
+class FMulAddArgs(Instruction_Args):
+    def __init__(self):
+        Instruction_Args.__init__(self)
+        self.result = "DEFAULT"
+        self.mul1 = "DEFUALT"
+        self.mul2 = "DEFUALT"
+        self.add = "DEFUALT"
+        self.result_type = Arg_Type()
+    def printArgs(self):
+        super().printArgs()
+        print("\tResult: " + self.result)
+        print("\tMul1: " + self.mul1 + ", Mul2: " + self.mul2 + ", Add: " + self.add)
+        print("\tType:" + self.result_type.printType())
+    def getVarsUsed(self):
+        self.vars_used.append(self.result)
+        self.vars_used.append(self.mul1)
+        self.vars_used.append(self.mul2)
+        self.vars_used.append(self.add)
+
 class Bitcast_Args(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
@@ -182,8 +202,10 @@ class Memory_Args(Instruction_Args):
         print("\talloca numelements: " + str(self.alloca_num_elements))
     def getVarsUsed(self):
         self.vars_used.append(str(self.result))
-        self.vars_used.append(str(self.pointer))
-
+        if(self.instr != "alloca"):
+            self.vars_used.append(str(self.pointer))
+        if(self.alloca_num_elements != "DEFAULT"):
+            self.vars_used.append(self.alloca_num_elements)
 #will not be implementing the inrange attribute
 #will not be 
 class GetElementPtr_Args(Instruction_Args):
