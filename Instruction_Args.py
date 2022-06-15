@@ -1,4 +1,5 @@
 from ast import Call
+from typing import List
 from Arg_Type import *
 import Parser as p
 
@@ -121,7 +122,8 @@ class Phi_Args(Instruction_Args):
         Instruction_Args.__init__(self)
         self.result = "DEFAULT"
         self.result_type = Arg_Type()
-        self.block_list:Phi_Block = []
+        self.block_list:List[Phi_Block] = []
+        self.pred_names:List[str] = []
     def printArgs(self):
         super().printArgs()
         print("\tResult: " + self.result)
@@ -133,6 +135,7 @@ class Phi_Args(Instruction_Args):
         self.vars_used.append(self.result)
         for block in self.block_list:
             self.vars_used.append(str(block.value))
+            self.pred_names.append(block.predecessor)
 
 
 class Phi_Block():

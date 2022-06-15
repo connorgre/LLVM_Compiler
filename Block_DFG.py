@@ -15,6 +15,8 @@ class Block_DFG:
         self.outer_vars:List[dfg_node.DFG_Node] = []    #variables that are used which have been assigned outside this block
         self.inner_vars:List[dfg_node.DFG_Node] = []    #variables assigned in this block
         self.graph = nx.DiGraph()
+        self.num_iters = -1                             #number of iterations block will run for
+        self.exit_node:dfg_node.DFG_Node = None
 
     def Get_Inner_Vars(self, dfg):
         """
@@ -23,6 +25,9 @@ class Block_DFG:
         for var in dfg.variables:
             if var.assignment[0] == self.block_num:
                 self.inner_vars.append(var)
+                if(var.instruction.args.instr in ['br', 'ret']):
+                    self.exit_node = var
+        self.Find_End_Nodes()
 
     def Get_Outer_Vars(self, dfg):
         """
@@ -36,6 +41,18 @@ class Block_DFG:
                     if(dep_var == None):
                         print("Error, dep_var == None")
                     self.outer_vars.append(dep_var)
+
+    #finds all the nodes that need to be completed before we can branch,
+    #as in at the end of the dependency chains within the block
+    def Find_End_Nodes(self):
+        for var in self.inner_vars:
+            end_node = True
+            for use in var.uses:
+                if(use[0] == self.block_num):
+                    end_node = False
+            if(end_node):
+                var.uses.append(self.exit_node.assignment)
+                self.exit_node.dependencies.append(var.assignment)
 
     def Print_Vars(self):
         print("\n**Inner Nodes**")
@@ -62,7 +79,15 @@ class Block_DFG:
                     #use var.name[1:], because llvm variables start with %, which causes a bug
                     #in the graphviz library where it reads the % as a special character and 
                     #causes an error, so simple solution is to just ignore it for the graph
-                    self.graph.add_edge(var.name[1:] + "_v",to_var.name[1:] + "_v")
+                    if(var in dfg.branch_variables):
+                        suffix_1 = "_b"
+                    else:
+                        suffix_1 = "_v"
+                    if(to_var in dfg.branch_variables):
+                        suffix_2 = "_b"
+                    else:
+                        suffix_2 = "_v"
+                    self.graph.add_edge(var.name[1:] + suffix_1 ,to_var.name[1:] + suffix_2)
             if(show_imm and var not in self.outer_vars):
                 for imm in var.immediates:
                     #purpose of imm_num is to create a unique node for each immediate, makes more sense on the
@@ -86,12 +111,14 @@ class Block_DFG:
         for node in self.graph.nodes:
             if("_s" in node):
                 color_array.append((0,1,1))
+            elif(("_b" in node)):
+                color_array.append((.75, .25, .75))
             elif(("%" + node[:-2]) in [var.name for var in self.inner_vars]):
                 color_array.append((0,1,0))
             elif("%" + node[:-2] in [var.name for var in self.outer_vars]):
                 color_array.append((0,0,1))
             elif("@" + node[:-2] in [var.name for var in self.outer_vars]):
-                color_array.append((1,0,1))
+                color_array.append((1,.25,1))
             elif("_i" in node):
                 color_array.append((1,0,0))
             else:
@@ -99,13 +126,14 @@ class Block_DFG:
         plt.title(self.block.name + ", " + str(self.block_num))
 
         no_uses = lines.Line2D([], [], color=(0,1,1), marker='o', markersize=10, label='no use (call, br, store)')
+        branch = lines.Line2D([],[], color = (.75,.25,.75), marker = 'o', markersize=10, label = "branch node")
         def_in = lines.Line2D([], [], color=(0,1,0), marker='o', markersize=10, label='defined inside')
         def_out = lines.Line2D([], [], color=(0,0,1), marker='o', markersize=10, label='defined outside')
-        def_glob = lines.Line2D([], [], color=(1,0,1), marker='o', markersize=10, label='defined globally')
+        def_glob = lines.Line2D([], [], color=(1,.25,1), marker='o', markersize=10, label='defined globally')
         imm = lines.Line2D([], [], color=(1,0,0), marker='o', markersize=10, label='immediate')
         use_out = lines.Line2D([], [], color=(1,1,0), marker='o', markersize=10, label='used outside')
-
-        plt.legend(handles=[no_uses, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
+        
+        plt.legend(handles=[no_uses, branch, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
 
         pos = graphviz_layout(self.graph, prog='dot')
         nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)

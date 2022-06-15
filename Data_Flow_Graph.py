@@ -19,9 +19,12 @@ class Data_Flow_Graph:
         print('dfg creation*****')
         self.variables : List[dfg_node.DFG_Node] = []        #holds all variables (includes global)
         self.global_variables : List[dfg_node.DFG_Node] = [] #holds only global variables
+        self.branch_variables : List[dfg_node.DFG_Node] = [] #holds nodes created with branch instructions
+        self.phi_variables : List[dfg_node.DFG_Node] = []    #holds all nodes created with phi
         self.par_file : pf.Parsed_File = parsed_file
         self.block_dfgs : List[b_dfg.Block_DFG] = []         #list of dfgs for each block
         self.Get_All_Variables()
+        self.Create_Branch_Nodes()
         self.Get_Uses()
         self.Get_Dependencies()
         self.Create_Other_Nodes()
@@ -48,7 +51,8 @@ class Data_Flow_Graph:
                             print("Error, block offset == -1")
                         node.assignment = (ord_idx, instr.block_offset)
                         if(instr.args.instr == "phi"):
-                            self.is_phi = True
+                            node.is_phi = True
+                            self.phi_variables.append(node)
                         self.variables.append(node)
 
     def Get_Global_Variables(self):
@@ -67,9 +71,33 @@ class Data_Flow_Graph:
                     self.variables.append(node)
                     self.global_variables.append(node)
 
+    def Create_Branch_Nodes(self):
+        """
+        This could have been added to Get_All_Variables, but I 
+        Think breaking the function up makes more sense, and easier to 
+        debug
+        """
+        for b_idx in range(len(self.par_file.blocks)):
+            block = self.par_file.Get_Order_Idx(b_idx)
+            ord_idx = block.block_order
+            for instr in block.instructions:
+                if(instr.args == None):
+                    continue
+                if(instr.args.instr != "br"):
+                    continue
+                node = dfg_node.DFG_Node(instr)
+                node.name = "%" + block.name
+                node.assignment = ((ord_idx, instr.block_offset))
+                #loop to get all the phi blocks that this branch statement targets
+                for var in self.phi_variables:
+                    if node.name in var.instruction.args.pred_names:
+                        node.uses.append(var.assignment)
+                self.branch_variables.append(node)
+                self.variables.append(node)
+        
     def Create_Other_Nodes(self):
         """
-        Creates nodes used in store, call, and branch.  These need to be handled specially, since they are the only instructions
+        Creates nodes used in store, some calls.  These need to be handled specially, since they are the only instructions
         That use variables without writing to anything.  They still need to be tracked as dependencies for the instructions though
         so we create 'fake' nodes that have no uses, but do have dependencies
         """
@@ -80,7 +108,7 @@ class Data_Flow_Graph:
                 instr = block.instructions[use[1]]
                 use_node = self.Get_Node_Block_Offset(use)
                 if(use_node == None or len(use_node.uses) == 0):
-                    if(instr.args.instr not in ['call', 'br', 'store']):
+                    if(instr.args.instr not in ['call', 'store']):
                         print("Error, expected call br or store, got: " + instr.args.instr + ", " + str(instr.line_num))
                         continue
                     if(use_node == None):
@@ -92,9 +120,6 @@ class Data_Flow_Graph:
                         self.variables.append(use_node)
                     use_node.dependencies.append(var.assignment)
                     
-                    
-
-
     def Get_Var_Idx(self, name):
         """
         Gets index of variable by name
@@ -201,3 +226,21 @@ class Data_Flow_Graph:
             block_dfg.Get_Inner_Vars(self)
             block_dfg.Get_Outer_Vars(self)
             self.block_dfgs.append(block_dfg)
+
+
+    def Get_Num_Iters(self):
+        """
+        Gets the number of iterations the block will run for.
+            -   Self.self_iters = number of iterations required for the exit 
+                condition of this loop
+            -   Self.total_iters = number of iterations it will go for in total
+        This requires the number of iterations a loop 
+        will run for to be a constant. I believe this 
+        is an assumption that can be made based on the gcn file. It would
+        be much more complicated otherwise, and impossible if the value is 
+        something read in from memory.
+        """
+        #this first loop gets the number of iterations that each 
+        #for loop must go through.  This is based on the assumption
+        #that the initial phi statement assigns 0.  This can be fixed
+        
