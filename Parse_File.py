@@ -2,6 +2,11 @@ from typing import List
 import Parser as parser
 import Instruction_Block as ib
 
+import networkx as nx
+import matplotlib.pyplot as plt
+from networkx.drawing.nx_agraph import graphviz_layout
+
+
 class Parsed_File:
     """
     parses an llvm ir file, and breaks it into blocks, and orders those blocks by execution order
@@ -12,11 +17,13 @@ class Parsed_File:
         self.blocks: List[ib.Instruction_Block] = []    #holds list of all the blocks
         self.block_names = []                           #used to find the name of a block based off its index (simplify successor calculations)
         self.block_order = []                           #holds the block indexes in the correct order
+        self.graph = nx.DiGraph()
         self.Parse_File()
         self.Break_Into_Blocks()
         self.Identify_Loops()
         self.Order_Loops()
         self.Get_Loop_Depth()
+        self.Make_Graph()
         return
 
     def Parse_File(self):
@@ -183,3 +190,27 @@ class Parsed_File:
         for idx in range(len(self.blocks)):
             if(self.Get_Order_Idx(idx).is_loop_exit):
                 print("'" + self.Get_Order_Idx(idx).name + "',")
+
+    def Make_Graph(self):
+        for idx in self.block_order:
+            block = self.blocks[idx]
+            if(block.target1 != "DEFAULT"):
+                self.graph.add_edge(block.name, block.target1[1:])
+            if(block.target2 != "DEFAULT"):
+                self.graph.add_edge(block.name, block.target2[1:])
+
+    def Show_Graph(self):
+
+        color_array = []
+        max_depth = -1
+        for block in self.blocks:
+            if(block.loop_depth > max_depth):
+                max_depth = block.loop_depth
+        
+        for node in self.graph.nodes:
+            idx = self.block_names.index("%" + node)
+            block = self.blocks[idx]
+            color_array.append((1 - block.loop_depth/max_depth, 0, block.loop_depth/max_depth))
+        pos = graphviz_layout(self.graph, prog='dot')
+        nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color = color_array)
+        plt.show()
