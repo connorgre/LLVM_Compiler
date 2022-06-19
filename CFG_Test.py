@@ -96,3 +96,6 @@ if(num_entry != len(loop_entries)):
     print(err + "wrong num of loop entries")
 if(num_exit != len(loop_exits)):
     print(err + "wrong number of loop exits")
+
+print("\t******** End of Tests ********")
+par_f.Show_Graph()

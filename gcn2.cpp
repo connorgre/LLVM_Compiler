@@ -59,11 +59,14 @@ int main(int argc, char const *argv[]) {
   int tk=0;
 
   #pragma clang loop unroll(disable)
+    //tm_trip_count == 4
   for (int tm = 0; tm < tm_trip_count; tm++){ // LOOP_TM
     // re-initializing the accumulation part of RF (after TK) to 0.0
     // #pragma clang loop vectorize_width(16)
+    //trf_trip_count = 16
     for (int trf = 0; trf < trf_trip_count; trf++){ // LOOP_TRF
       #pragma clang loop unroll(disable)
+      //NUM_SIMD_LANES == 16
       for (int lane0 = 0; lane0 < NUM_SIMD_LANES; lane0++){
         rf_idx1 = TK*NUM_SIMD_LANES + trf*NUM_SIMD_LANES + lane0;
         rf0[rf_idx1] = 0.0;
@@ -71,13 +74,16 @@ int main(int argc, char const *argv[]) {
     }
     #pragma clang loop unroll(disable)
     //LOOP_TK
+    //tk_trip_count == 32
     for (int tk = 0; tk < tk_trip_count; tk++) { //tk is tiling // another way is to have tk = tk + NUM_SIMD_LANES but my HW doesnt support 
       // filling up register files
       // #pragma clang loop vectorize(enable)
       #pragma clang loop unroll(disable)
+      //TK == 32
       for (int k = 0; k < TK; k++){ // LOOP_K
         // #pragma clang loop vectorize_width(16)
         #pragma clang loop unroll(disable)
+        //NUM_SIMD_LANES == 16
         for (int lane1 = 0; lane1 < NUM_SIMD_LANES; lane1++){
           rf_idx2 = k*NUM_SIMD_LANES + lane1;
           hbm_idx = tk*TK*NUM_SIMD_LANES + k*NUM_SIMD_LANES + lane1;
@@ -85,11 +91,14 @@ int main(int argc, char const *argv[]) {
         }
       }
       // do the processing
+      //TM == 16
       for (int m=0; m < TM; m++){ // LOOP_M
         #pragma clang loop vectorize_width(32)
+        //TK == 32
         for (int k2 = 0; k2 < TK; k2++){
           // #pragma clang loop vectorize_width(16)
           #pragma clang loop unroll(disable)
+          //NUM_SIMD_LANES == 16
           for(int lane2 = 0; lane2 < NUM_SIMD_LANES; lane2++){
             rf_idx3 = NUM_SIMD_LANES*(TK+m) + lane2;
             rf_idx4 = k2*NUM_SIMD_LANES + lane2;

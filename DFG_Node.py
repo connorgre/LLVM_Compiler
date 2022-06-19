@@ -10,7 +10,9 @@ class DFG_Node:
         self.name:str = instruction.args.result         #just to pull through the name to make access easier
         self.assignment = (-1, -1)                  #tuple with (block, instr) -- the block and offset into the block the var is assigned
         self.uses = []                              #list of (block, instr) -- locations var is used 
+        self.psuedo_uses = []                       #uses generated as a result of 'fake' going into a branch instruction
         self.dependencies = []                      #list of the 1 level up dependencies of this variable
+        self.psuedo_dependencies = []               #dependencies generated as a result of an 'end' node going into a branch node
         self.immediates = []                        #the immediates used in the assignment of this node
         self.is_loop_control = False                #true if this is a register related to loop control (ie loop index)
         self.is_phi = False

@@ -130,6 +130,15 @@ class Data_Flow_Graph:
                 return idx
         return -1
 
+    def Get_Node_By_Name(self, name):
+        """
+        Gets a node by its name
+        """
+        for node in self.variables:
+            if node.name == name:
+                return node
+        return None
+    
     def Get_Node_Block_Offset(self, pos:Tuple[int, int]):
         """
         returns the Node that was assigned at (block, block offset)
@@ -225,22 +234,75 @@ class Data_Flow_Graph:
             block_dfg = b_dfg.Block_DFG(block)
             block_dfg.Get_Inner_Vars(self)
             block_dfg.Get_Outer_Vars(self)
+            block_dfg.Get_Vector_Len()
             self.block_dfgs.append(block_dfg)
-
-
-    def Get_Num_Iters(self):
-        """
-        Gets the number of iterations the block will run for.
-            -   Self.self_iters = number of iterations required for the exit 
-                condition of this loop
-            -   Self.total_iters = number of iterations it will go for in total
-        This requires the number of iterations a loop 
-        will run for to be a constant. I believe this 
-        is an assumption that can be made based on the gcn file. It would
-        be much more complicated otherwise, and impossible if the value is 
-        something read in from memory.
-        """
-        #this first loop gets the number of iterations that each 
-        #for loop must go through.  This is based on the assumption
-        #that the initial phi statement assigns 0.  This can be fixed
         
+        for block in self.block_dfgs:
+            block.Get_Self_Iters(self)
+
+
+    def Get_Use_Path(self, start:dfg_node.DFG_Node, target:dfg_node.DFG_Node, node_list:List[dfg_node.DFG_Node], do_dep=False):
+        """
+        Wrapper to call Do_Use_Path_DFG, just adds the visited array
+
+        Populates a list of the nodes on (a) path from start to target.
+        There could theoretically be more paths ig, but this is mostly meant
+        for loop counting.
+
+        do_dep is true if you are searching using the dependency list 
+        (backwards search)
+        """
+        visited = []
+        self.Do_Use_Path_DFG(start, target, node_list, visited, do_dep)
+
+    def Do_Use_Path_DFG(self, start:dfg_node.DFG_Node, target:dfg_node.DFG_Node, node_list:List[dfg_node.DFG_Node], visited, do_dep):
+        
+        if(start in visited):
+            return False
+        visited.append(start)
+        node_list.append(start)
+        if(start == target):
+            return True
+        if(do_dep == False):
+            nodes = start.uses
+            exclude = start.psuedo_uses
+        else:
+            nodes = start.dependencies
+            exclude = start.psuedo_dependencies
+        for use in nodes:
+            if(use in exclude):
+                continue
+            node = self.Get_Node_Block_Offset(use)
+            ret_val = self.Do_Use_Path_DFG(node, target, node_list, visited, do_dep)
+            if(ret_val == True):
+                return True
+        node_list.pop()
+        return False
+
+
+    def Get_Total_Iters(self):
+        """
+        Gets the total number of iterations that a for loop will do. Must have had 
+        Get_Self_Iters() done on every block in the cfg (this gets done normall on __init__ tho)
+        """
+        prev_iters = 1
+        for block in self.block_dfgs:
+            if block.self_iters == -1:
+                block.self_iters = 1
+            
+            #if we are a block that isn't a loop exit, then multiply the previous blocks iterations
+            #by the number of iterations we do ourself.  If we are a self loop, then we also need to 
+            #do the multiplication, even though we are technically also an exit block
+            if block.block.is_loop_exit == False:
+                block.num_iters = block.self_iters * prev_iters
+                prev_iters = block.num_iters
+            elif (block.block.is_loop_exit == True and block.block.is_loop_entry == True):
+                block.num_iters = block.self_iters * prev_iters
+                #dont update prev iters in this case
+            else:
+                entry_idx = block.block.entry_idx
+                entry_order_idx = self.par_file.blocks[entry_idx].block_order
+                entry_block = self.block_dfgs[entry_order_idx]
+                block.num_iters = entry_block.num_iters
+                prev_iters = block.num_iters
+            

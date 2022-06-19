@@ -16,6 +16,8 @@ class Block_DFG:
         self.inner_vars:List[dfg_node.DFG_Node] = []    #variables assigned in this block
         self.graph = nx.DiGraph()
         self.num_iters = -1                             #number of iterations block will run for
+        self.self_iters = -1
+        self.vector_len = -1
         self.exit_node:dfg_node.DFG_Node = None
 
     def Get_Inner_Vars(self, dfg):
@@ -52,7 +54,9 @@ class Block_DFG:
                     end_node = False
             if(end_node):
                 var.uses.append(self.exit_node.assignment)
+                var.psuedo_uses.append(self.exit_node.assignment)
                 self.exit_node.dependencies.append(var.assignment)
+                self.exit_node.psuedo_dependencies.append(var.assignment)
 
     def Print_Vars(self):
         print("\n**Inner Nodes**")
@@ -138,3 +142,104 @@ class Block_DFG:
         pos = graphviz_layout(self.graph, prog='dot')
         nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)
         plt.show()
+
+
+    #this function does make a few assumptions about teh
+    #structure of loops, and the dataflow in assigning and 
+    #incrementing the loop indices.  This should
+    #work for simple loops where very little transformation is done
+    #on the loop counter
+    def Get_Self_Iters(self, dfg):
+        """
+        Gets the number of iterations the block will run for.
+            -   Self.self_iters = number of iterations required for the exit 
+                condition of this loop
+            -   Self.total_iters = number of iterations it will go for in total
+        This requires the number of iterations a loop 
+        will run for to be a constant. I believe this 
+        is an assumption that can be made based on the gcn file. It would
+        be much more complicated otherwise, and impossible if the value is 
+        something read in from memory.
+        """
+        #only get self_iters if we're an entry block
+        if(self.block.is_loop_entry == False):
+            return
+        if(self.block.exit_idx == -1):
+            print("Error, entry block with no exit block")
+            return
+        exit_block:ib.Instruction_Block = dfg.par_file.blocks[self.block.exit_idx]
+        if(exit_block.is_loop_exit == False):
+            print("Error, what should be exit isn't...")
+        exit_dfg_block:Block_DFG = dfg.block_dfgs[exit_block.block_order]
+        if(exit_dfg_block.block_num != exit_block.block_order):
+            print("Error, exit dfg blocknum != exit_block.order_idx")
+
+        exit_node:dfg_node.DFG_Node = exit_dfg_block.exit_node
+        entry_node = self.inner_vars[0]
+        if(entry_node.instruction.args.instr != "phi"):
+            print("Error, expected phi as first instruction in for loop")
+        
+        #get the initial value for the loop. it is 0 for 
+        #gcn, but it can be any constant int
+        prev_branch = None  #This is the node that branched into this one
+        for var in entry_node.dependencies:
+            if var[0] < self.block_num:
+                prev_branch = dfg.Get_Node_Block_Offset(var)
+        initial_val = -1
+        for block in entry_node.instruction.args.block_list:
+            if block.predecessor == prev_branch.name:
+                initial_val = int(block.value)
+
+        nodePath:List[dfg_node.DFG_Node] = []
+        dfg.Get_Use_Path(entry_node, exit_node, nodePath)
+
+        #get the variable used in the comparison, and the comparison limit
+        compareVar = None
+        compareImm = None
+        for node in nodePath:
+            if(node.instruction.args.instr == "icmp"):
+                if(node.instruction.args.comparison != "eq"):
+                    print("Error, expected equality comparison")
+                compareVar = node.instruction.args.op1
+                compareImm = node.instruction.args.op2
+        loop_limit = int(compareImm)
+        
+        #find the value that we increment the loop by
+        compareNode:dfg_node.DFG_Node = dfg.Get_Node_By_Name(compareVar)
+
+        if compareNode == entry_node and \
+            loop_limit == initial_val and \
+            exit_node.instruction.args.false_target[1:] == self.block.name:
+            #This is the special case where we are only looping once. 
+            #for some reason llvm ir doesn't use the .next variable, but rather compares
+            #the initial variable with its initial value.  This makes no sense for clang to do
+            #but whatever
+            self.self_iters = 1
+            return
+
+        compareNode_deps = []
+        for blk_off in compareNode.dependencies:
+            compareNode_deps.append(dfg.Get_Node_Block_Offset(blk_off))
+        if(entry_node not in compareNode_deps):
+            print("Expected simpler loop logic")
+            print("\t*****Need to revisit Block_DFG.Get_Self_Iters()")
+        if(len(compareNode.immediates) != 1):
+            print("Expected compare node to have only 1 immediate on assignment")
+        increment_val = int(compareNode.immediates[0])
+
+        #put it all together now
+        self.self_iters = int((loop_limit - initial_val)/increment_val)
+
+    def Get_Vector_Len(self):
+        """
+        Gets the length of the vectors used within the block
+        """
+        for var in self.inner_vars:
+            res_type = var.instruction.args.result_type
+            if res_type == None:
+                continue
+            if res_type.is_vector == False:
+                continue
+            if int(self.vector_len) != -1 and int(res_type.width) != int(self.vector_len):
+                print("Error, multiple vector lengths in the loop")
+            self.vector_len = int(res_type.width)
