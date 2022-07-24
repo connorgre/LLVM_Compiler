@@ -55,6 +55,7 @@ class MemsetArgs(Call_Args):
 class FMulAddArgs(Instruction_Args):
     def __init__(self):
         Instruction_Args.__init__(self)
+        self.function = "DEFAULT"
         self.result = "DEFAULT"
         self.mul1 = "DEFUALT"
         self.mul2 = "DEFUALT"

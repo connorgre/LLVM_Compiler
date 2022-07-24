@@ -1,24 +1,34 @@
+from ast import Delete
 from typing import List
 
 from matplotlib import lines
 
-import DFG_Node as dfg_node
+import DFG_Node as dfgn
 import Instruction_Block as ib
 import networkx as nx
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_agraph import graphviz_layout
+import Special_Nodes as sdfgn
 
 class Block_DFG:
     def __init__(self, block:ib.Instruction_Block):
         self.block:ib.Instruction_Block = block
         self.block_num:int = block.block_order          #block number this dfg corresponds to
-        self.outer_vars:List[dfg_node.DFG_Node] = []    #variables that are used which have been assigned outside this block
-        self.inner_vars:List[dfg_node.DFG_Node] = []    #variables assigned in this block
+        self.outer_vars:List[dfgn.DFG_Node] = []    #variables that are used which have been assigned outside this block
+        self.inner_vars:List[dfgn.DFG_Node] = []    #variables assigned in this block
         self.graph = nx.DiGraph()
+
         self.num_iters = -1                             #number of iterations block will run for
         self.self_iters = -1
         self.vector_len = -1
-        self.exit_node:dfg_node.DFG_Node = None
+        self.initial_val = -1
+        self.stride = -1
+
+        self.is_macc = False
+        self.phi_node:sdfgn.Phi_Node = None
+        self.exit_node:dfgn.DFG_Node = None
+
+        self.createdNodes:List[dfgn.DFG_Node] = []
 
     def Get_Inner_Vars(self, dfg):
         """
@@ -29,6 +39,8 @@ class Block_DFG:
                 self.inner_vars.append(var)
                 if(var.instruction.args.instr in ['br', 'ret']):
                     self.exit_node = var
+                if(var.is_phi):
+                    self.phi_node = var
         self.Find_End_Nodes()
 
     def Get_Outer_Vars(self, dfg):
@@ -97,7 +109,49 @@ class Block_DFG:
                     #purpose of imm_num is to create a unique node for each immediate, makes more sense on the
                     #graph
                     self.graph.add_edge(imm + "_i" + str(imm_num),var.name[1:] + "_v")
-                    imm_num += 1        
+                    imm_num += 1
+
+    def Make_Graph_2(self, dfg, show_imm=True):
+        """
+        Uses node pointer lists of the inner vars rather than the location 
+        pointers
+        """
+        blockNodes = self.outer_vars.copy()
+        blockNodes.extend(self.inner_vars)
+        blockNodes.extend(self.createdNodes)
+        self.graph = nx.DiGraph()
+        imm_num = 0
+        for node in blockNodes:
+            for use in node.use_nodes:
+                if(node in self.outer_vars and use not in self.inner_vars):
+                    continue
+                if(node in dfg.branch_variables):
+                    suffix_1 = "_b"
+                else:
+                    suffix_1 = "_v"
+                if(use in dfg.branch_variables):
+                    suffix_2 = "_b"
+                else:
+                    suffix_2 = "_v"
+                self.graph.add_edge(node.name[1:] + suffix_1 ,use.name[1:] + suffix_2)
+
+            if node in self.outer_vars:
+                #only do the dep list for inner nodes
+                continue
+            for dep in node.dep_nodes:
+                if(dep in dfg.branch_variables):
+                    suffix_1 = "_b"
+                else:
+                    suffix_1 = "_v"
+                if(node in dfg.branch_variables):
+                    suffix_2 = "_b"
+                else:
+                    suffix_2 = "_v"
+                self.graph.add_edge(dep.name[1:] + suffix_1 ,node.name[1:] + suffix_2)
+            if(show_imm):
+                for imm in node.immediates:
+                    self.graph.add_edge(str(imm) + "_i" + str(imm_num),node.name[1:] + "_v")
+                    imm_num += 1
 
     def Show_Graph(self):
         """
@@ -117,6 +171,8 @@ class Block_DFG:
                 color_array.append((0,1,1))
             elif(("_b" in node)):
                 color_array.append((.75, .25, .75))
+            elif("$" + node[:-2] in [var.name for var in self.createdNodes]):
+                color_array.append((.25, 1, .5))
             elif(("%" + node[:-2]) in [var.name for var in self.inner_vars]):
                 color_array.append((0,1,0))
             elif("%" + node[:-2] in [var.name for var in self.outer_vars]):
@@ -127,7 +183,7 @@ class Block_DFG:
                 color_array.append((1,0,0))
             else:
                 color_array.append((1, 1, 0))
-        plt.title(self.block.name + ", " + str(self.block_num))
+        plt.title(self.block.name + " : " + str(self.block_num) + " : " + str(self.self_iters) + " : " + str(self.stride))
 
         no_uses = lines.Line2D([], [], color=(0,1,1), marker='o', markersize=10, label='no use (call, br, store)')
         branch = lines.Line2D([],[], color = (.75,.25,.75), marker = 'o', markersize=10, label = "branch node")
@@ -140,15 +196,26 @@ class Block_DFG:
         plt.legend(handles=[no_uses, branch, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
 
         pos = graphviz_layout(self.graph, prog='dot')
+
+        # this is here bc the layout has the node for
+        # 12 on a line and it makes it hard to 
+        # tell whats going on, so scoot it over a bit
+        # no functional difference if this is taken out
+        if "12_v" in pos:
+            val = pos["12_v"]
+            newx = 1.05 * val[0]
+            newVal = (newx, val[1])
+            pos["12_v"] = newVal
+
         nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)
         plt.show()
 
 
-    #this function does make a few assumptions about teh
-    #structure of loops, and the dataflow in assigning and 
-    #incrementing the loop indices.  This should
-    #work for simple loops where very little transformation is done
-    #on the loop counter
+    # this function does make a few assumptions about teh
+    # structure of loops, and the dataflow in assigning and 
+    # incrementing the loop indices.  This should
+    # work for simple loops where very little transformation is done
+    # on the loop counter
     def Get_Self_Iters(self, dfg):
         """
         Gets the number of iterations the block will run for.
@@ -161,7 +228,7 @@ class Block_DFG:
         be much more complicated otherwise, and impossible if the value is 
         something read in from memory.
         """
-        #only get self_iters if we're an entry block
+        # only get self_iters if we're an entry block
         if(self.block.is_loop_entry == False):
             return
         if(self.block.exit_idx == -1):
@@ -174,7 +241,7 @@ class Block_DFG:
         if(exit_dfg_block.block_num != exit_block.block_order):
             print("Error, exit dfg blocknum != exit_block.order_idx")
 
-        exit_node:dfg_node.DFG_Node = exit_dfg_block.exit_node
+        exit_node:dfgn.DFG_Node = exit_dfg_block.exit_node
         entry_node = self.inner_vars[0]
         if(entry_node.instruction.args.instr != "phi"):
             print("Error, expected phi as first instruction in for loop")
@@ -189,8 +256,9 @@ class Block_DFG:
         for block in entry_node.instruction.args.block_list:
             if block.predecessor == prev_branch.name:
                 initial_val = int(block.value)
+                self.initial_val = initial_val
 
-        nodePath:List[dfg_node.DFG_Node] = []
+        nodePath:List[dfgn.DFG_Node] = []
         dfg.Get_Use_Path(entry_node, exit_node, nodePath)
 
         #get the variable used in the comparison, and the comparison limit
@@ -205,7 +273,7 @@ class Block_DFG:
         loop_limit = int(compareImm)
         
         #find the value that we increment the loop by
-        compareNode:dfg_node.DFG_Node = dfg.Get_Node_By_Name(compareVar)
+        compareNode:dfgn.DFG_Node = dfg.Get_Node_By_Name(compareVar)
 
         if compareNode == entry_node and \
             loop_limit == initial_val and \
@@ -243,3 +311,416 @@ class Block_DFG:
             if int(self.vector_len) != -1 and int(res_type.width) != int(self.vector_len):
                 print("Error, multiple vector lengths in the loop")
             self.vector_len = int(res_type.width)
+
+    def Identify_Macc(self, dfg):
+        """
+        This identifies the mutliply accumulate function dataflow pattern
+        Right now it requires the llvm to compile down to a fmuladd, but 
+        if the clang compiler that gets used doesn't support that, then I 
+        can add in support for a multiply then add instruction
+        """
+        #first, identify if fmuladd is in block
+        fma_node:dfgn.DFG_Node = None
+        for node in self.inner_vars:
+            if node.instruction.args.instr == "fmuladd":
+                self.is_macc = True
+                fma_node = node
+        if self.is_macc == False:
+            return
+        
+        print(self.block.name + ": is mac block")
+        print("fmuladd Node: " + fma_node.instruction.string)
+
+        #now get the nodes of the operands
+        mul1_var = fma_node.instruction.args.mul1
+        mul2_var = fma_node.instruction.args.mul2
+        add_var = fma_node.instruction.args.add
+        res_var = fma_node.instruction.args.result
+
+        mul1_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(mul1_var)
+        mul2_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(mul2_var)
+        add_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(add_var)
+        res_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(res_var)
+        
+        if(res_node != fma_node):
+            print("res node != fma node (very odd error to have)")
+
+        res_store_node:dfgn.DFG_Node = None
+        res_ptr_node:dfgn.DFG_Node = None
+        (res_ptr_node, res_store_node) = dfg.Get_Store_Node(res_node)
+
+        addPtrInfo = add_node.Get_Pointer_Info(dfg)
+        mul1PtrInfo = mul1_node.Get_Pointer_Info(dfg)
+        mul2PtrInfo = mul2_node.Get_Pointer_Info(dfg)
+
+        if res_ptr_node.instruction.args.pointer != addPtrInfo[0].name:
+            print("Error, not a macc (store != add node)")
+            print("res_store: " + res_ptr_node.name)
+            print("add_node: " + dfg.Get_Pointer_Node(add_node).name)
+
+        macc = sdfgn.Macc_Node()
+
+        macc.accPtr = addPtrInfo[0]
+        macc.mul1Ptr = mul1PtrInfo[0]
+        macc.mul2Ptr = mul2PtrInfo[0]
+
+        (macc.accStride, macc.accStrideDepth) = addPtrInfo[1].Get_Full_Stride()
+        macc.accIdxInitVal = addPtrInfo[1].Get_Initial_Val()
+
+        (macc.mul1Stride, macc.mul1StrideDepth) = mul1PtrInfo[1].Get_Full_Stride()
+        macc.mul1IdxInitVal = mul1PtrInfo[1].Get_Initial_Val()
+
+        (macc.mul2Stride, macc.mul2StrideDepth) = mul2PtrInfo[1].Get_Full_Stride()
+        macc.mul1IdxInitVal = mul2PtrInfo[1].Get_Initial_Val()
+
+        macc.numLoopRuns = self.Get_Iter_List(dfg)
+
+        # now make sure the macc is dependent on this loop
+        macc.dep_nodes.append(self.phi_node)
+        self.phi_node.use_nodes.append(macc)
+
+        macc.use_nodes.append(self.exit_node)
+        self.exit_node.dep_nodes.append(macc)
+
+        macc.name = "$macc_" + macc.accPtr.name + "_" + macc.mul1Ptr.name + "_" + macc.mul2Ptr.name
+
+        self.inner_vars.append(macc)
+        self.createdNodes.append(macc)
+
+        macc.Relink_Nodes(dfg, fma_node)
+        self.UnLinkNode(fma_node, dfg)
+        self.UnLinkNode(res_store_node, dfg)
+        
+        removedNode = True
+        while (removedNode):
+            removedNode = self.CleanupOldNodes(dfg)
+
+        self.Make_Graph_2(dfg, True)
+        self.Show_Graph()
+
+    def Identify_Load_Loop(self, dfg):
+        """
+        Identifies the loops where we are loading data from memory into the 
+        register file.  Basically, this is any loop with memset/memcpy in it, 
+        which doesn't output to stream_out. This
+        Should make doing the vsetivli and the vle32.v simpler.
+        """
+        call_node:dfgn.DFG_Node = None
+        for node in self.inner_vars:
+            if node.instruction != None:
+                if node.instruction.args.instr == "call":
+                    call_node = node
+                    break
+        if(call_node == None):
+            return
+        vleNode:sdfgn.VLE_Node = sdfgn.VLE_Node()
+        self.createdNodes.append(vleNode)
+        self.inner_vars.append(vleNode)
+
+        res_name = call_node.instruction.args.result
+        load_name = call_node.instruction.args.value
+        load_len = call_node.instruction.args.length
+
+        load_node:dfgn.DFG_Node = None
+        res_node:dfgn.DFG_Node = None
+        for node in call_node.dep_nodes:
+            if node.name == load_name:
+                load_node = node
+            if node.name == res_name:
+                res_node = node
+        # res_node can't be done. Need to store this 
+        # somewhere. load_node can be if were loading an 
+        # immediate value
+        assert(res_node != None)
+
+        load_ptr_info = [None, None, None]
+        res_ptr_info = res_node.Get_Pointer_Info(dfg)
+        load_val = None
+        if(load_node == None):
+            try:
+                load_val = int(load_name)
+            except:
+                print("Error, no load node, and it isn't an int")
+        else:
+            load_ptr_info = load_node.Get_Pointer_Info(dfg)
+        vleNode.pointer_node = res_ptr_info[0]
+        vleNode.load_node = load_ptr_info[0]
+        vleNode.load_val = load_val
+        
+        if res_ptr_info[1] != None:
+            (vleNode.ptr_stride, vleNode.ptr_stride_depth) = res_ptr_info[1].Get_Full_Stride()
+            vleNode.init_ptr_off = res_ptr_info[1].Get_Initial_Val()
+        else:
+            vleNode.init_ptr_off = res_ptr_info[2]
+        
+        if load_ptr_info[1] != None:
+            (vleNode.load_stride, vleNode.load_stride_depth) = load_ptr_info[1].Get_Full_Stride()
+            vleNode.init_load_off = load_ptr_info[1].Get_Initial_Val()
+        else:
+            vleNode.init_load_off = load_ptr_info[2]
+        
+        vleNode.length = load_len
+
+        if(vleNode.load_node == None):
+            vleLoadName = str(load_val) + "i"
+        else:
+            vleLoadName = str(vleNode.load_node.name)
+        vleNode.name = "$vle_" + vleNode.pointer_node.name + "_" + vleLoadName
+
+        vleNode.use_nodes = call_node.use_nodes
+        vleNode.psuedo_nodes = call_node.psuedo_nodes
+
+        vleNode.pointer_node.use_nodes.append(vleNode)
+        vleNode.dep_nodes.append(vleNode.pointer_node)
+        if vleNode.load_node != None:
+            vleNode.load_node.use_nodes.append(vleNode)
+            vleNode.dep_nodes.append(vleNode.load_node)
+
+        vleNode.Print_Node()
+        vleNode.Relink_Nodes(dfg, call_node)
+        self.UnLinkNode(call_node, dfg)
+
+        removedNode = True
+        while (removedNode):
+            removedNode = self.CleanupOldNodes(dfg)
+
+        self.Make_Graph_2(dfg, True)
+        self.Show_Graph()
+
+
+    def Identify_Load_Loop_OLD_WONT_WORK(self, dfg):
+        """
+        Identifies the loops where we are loading data from memory into the 
+        register file.  Basically, this is any loop with memset/memcpy in it, 
+        which doesn't output to stream_out. This
+        Should make doing the vsetivli and the vle32.v simpler.
+        """
+        #first identify if this block even has a memset/memcpy in it (call)
+        call_node:dfgn.DFG_Node = None
+        for node in self.inner_vars:
+            if node.instruction != None:
+                if node.instruction.args.instr == "call":
+                    call_node = node
+                    break
+        if(call_node == None):
+            return
+        vleNode:sdfgn.VLE_Node = sdfgn.VLE_Node()
+        self.createdNodes.append(vleNode)
+        self.inner_vars.append(vleNode)
+
+        res_name = call_node.instruction.args.result
+        load_name = call_node.instruction.args.value
+        load_len = call_node.instruction.args.length
+
+        load_node:dfgn.DFG_Node = None
+        res_node:dfgn.DFG_Node = None
+        for node in call_node.dep_nodes:
+            if node.name == load_name:
+                load_node = node
+            if node.name == res_name:
+                res_node = node
+
+        load_val = None
+        load_offset = 0
+        load_offset_node:dfgn.DFG_Node = None
+        if(load_node == None):
+            try:
+                load_val = int(load_name)
+            except:
+                print("Error, no load node, and it isn't an int")
+        else:
+            load_node = dfg.Get_Pointer_Node(load_node)
+            if(load_node.instruction.args.instr == "getelementptr"):
+                load_offset = load_node.instruction.args.index_value[1]
+                if(load_offset[0] in ["%", "@"]):
+                    load_offset_node = dfg.Get_Node_By_Name(load_offset)
+                load_node = dfg.Get_Pointer_Node(load_node)
+        
+        pointer_node = dfg.Get_Pointer_Node(res_node)
+        pointer_offset = 0
+        pointer_offset_node:dfgn.DFG_Node = None
+        if(pointer_node.instruction.args.instr == "getelementptr"):
+            pointer_offset = pointer_node.instruction.args.index_value[1]
+            if(pointer_offset[0] in ["%", "@"]):
+                pointer_offset_node = dfg.Get_Node_By_Name(pointer_offset)
+            pointer_node = dfg.Get_Pointer_Node(pointer_node)
+        
+        vleNode.length = load_len
+        vleNode.pointer_node = pointer_node
+        vleNode.load_node = load_node
+        vleNode.pointer_offset = pointer_offset
+        vleNode.load_offset = load_offset
+        vleNode.pointer_offset_node = pointer_offset_node
+        vleNode.load_offset_node = load_offset_node
+        vleNode.load_val = load_val
+
+        if(load_val != None):
+            vleLoadName = str(load_val)
+        else:
+            vleLoadName = str(load_node.name)
+        vleNode.name = "$vle_" + pointer_node.name + "_" + vleLoadName
+        vleNode.assignment = call_node.assignment
+        vleNode.use_nodes = call_node.use_nodes
+        vleNode.uses = call_node.uses
+        vleNode.psuedo_uses = call_node.psuedo_uses
+        vleNode.Fill_Immediates()
+        vleNode.Get_Ptr_Offset_Info(dfg)
+
+        vleNode.ReLinkOtherNodes(dfg, call_node)
+        self.UnLinkNode(call_node, dfg)
+        return
+
+    def UnLinkNode(self, removeNode:dfgn.DFG_Node, dfg):
+        """
+        When removing a node, we want to remove all nodes that 
+        only contribute to the node were doing.
+        Ie if len(removeNode.dep.uses) == 1, then its only used for our node,
+        so we delete it.  Do this recursively until while the node is only
+        used in one one. Also remove it from our
+        Variable Lists
+        exceptions are the nodes that don't count towards the 'one use' rule
+        """
+
+        for dep in removeNode.dep_nodes.copy():
+            if removeNode not in dep.use_nodes:
+                print("Error, removeNode not in dep.use_nodes")
+                print("\t" + removeNode.name + ", " + dep.name)
+            
+            depUseNodes = dep.use_nodes.copy()
+            for psuedo in dep.psuedo_nodes:
+                if psuedo in depUseNodes:
+                    depUseNodes.remove(psuedo)
+            
+            if(len(depUseNodes) == 1):
+                try:
+                    dfg.block_dfgs[dep.block_num].UnLinkNode(dep, dfg)
+                except:
+                    print("Error with recursive unlink on: ")
+                    print("\t" + dep.name)
+                    print("\tblockNum: " + str(dep.block_num))
+            else:
+                # this is an an else block bc the recursive UnLink
+                # will take care of this
+                dep.use_nodes.remove(removeNode)
+
+        for use in removeNode.use_nodes.copy():
+            if removeNode not in use.dep_nodes:
+                print("Error!, removeNode should be in use.depNodes")
+            else:
+                use.dep_nodes.remove(removeNode)
+
+        if(removeNode in self.inner_vars):
+            self.inner_vars.remove(removeNode)
+        if(removeNode in self.outer_vars):
+            self.outer_vars.remove(removeNode)
+
+    def CleanupOldNodes(self, dfg):
+        """
+        Removes all the nodes that have no uses and aren't
+        'terminal' nodes, i.e. nodes that write data to
+        memory.  Not super necessary, but will be useful to
+        catch errors
+        """
+        exemptInstrs = ['store']
+        nodeList = self.inner_vars.copy()
+        nodeList.extend(self.outer_vars.copy())
+        removedNode = False
+        for node in nodeList:
+            # any node with no instruction was explicitly 
+            # created, so likely don't want to delete it
+            if node.is_vle == True:
+                continue
+            if node.is_phi == True:
+                continue
+            if node.is_macc == True:
+                continue
+            if node.instruction.args.instr in exemptInstrs:
+                continue
+
+            nodeUses = node.use_nodes.copy()
+            for psuedo in node.psuedo_nodes:
+                if psuedo in nodeUses:
+                    nodeUses.remove(psuedo)
+            
+            if len(nodeUses) == 0:
+                for dep in node.dep_nodes.copy():
+                    if node in dep.use_nodes:
+                        removedNode = True
+                        dep.use_nodes.remove(node)
+                    else:
+                        print("node should be in deps...")
+                for psuedo in node.psuedo_nodes.copy():
+                    if psuedo in node.dep_nodes:
+                        psuedo.use_nodes.remove(node)
+                        node.psuedo_nodes.remove(psuedo)
+                    elif psuedo in node.use_nodes:
+                        psuedo.dep_nodes.remove(node)
+                        node.psuedo_nodes.remove(psuedo)
+                    else:
+                        print("Error, psuedo not in normal nodes")
+                if node in self.inner_vars.copy():
+                    self.inner_vars.remove(node)
+                else:
+                    self.outer_vars.remove(node)
+        return removedNode
+    
+    def Get_Stride(self, dfg):
+        """
+        Gets the loop->loop change of the value assigned by phi
+        """
+        phiNode = self.phi_node
+        if phiNode == None:
+            return
+        dep = phiNode.Get_Second_Val(dfg)
+        stridePath:List[dfgn.DFG_Node] = []
+        dfg.Get_Use_Path_Graph(phiNode, dep, stridePath)
+
+        totalStride = 0
+
+        for idx, node in enumerate(stridePath):
+            if idx == 0:
+                continue
+            if stridePath[idx -1].name not in node.instruction.args.vars_used:
+                print("Error, path not right")
+                return
+            if node.instruction.args.instr == "add":
+                totalStride += int(node.immediates[0])
+            elif node.instruction.args.instr == "mul":
+                if totalStride == 0:
+                    totalStride = 1
+                totalStride *= int(node.immediates[0])
+            elif node.instruction.args.instr == "shl":
+                if totalStride == 0:
+                    totalStride = 1
+                totalStride *= (2 ** (int(node.immediates[0])))
+        
+        self.stride = totalStride
+        phiNode.stride.append(totalStride)
+        return
+
+    def Fill_Loop_Depths(self):
+        """
+        It is useful for each node to know how nested it is
+        """
+        for node in self.inner_vars:
+            node.loop_depth = self.block.loop_depth
+
+    def Get_Iter_List(self, dfg):
+        """
+        gets a list of the number of iterations the loop runs for,
+        usefull for macc
+        """
+        if self.block.loop_depth == 0:
+            return [self.self_iters]
+
+        iterList = dfg.block_dfgs[self.block_num - 1].Get_Iter_List(dfg)
+
+        iterList.append(self.self_iters)
+        return iterList
+
+    def Fill_Block_Nums(self):
+        """
+        puts the block number into each node.
+        """
+        for node in self.inner_vars:
+            node.block_num = self.block_num

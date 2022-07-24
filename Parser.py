@@ -365,7 +365,10 @@ class Instruction:
                 print("Error: call type not implemented. Line: " + str(self.line_num))
                 return
             idx = 0
-            self.args.instr = 'call'
+            #need this if statement here bc fmuladd has instr == fmuladd, not call
+            #as it is more useful
+            if(self.args.instr == "DEFAULT"):
+                self.args.instr = 'call'
             self.args.instr_type = "Function Call"
             #assumes src and dest have same alignment/ dereferencable
             if("align" in self.tokens):
@@ -383,6 +386,9 @@ class Instruction:
     #                                             <16 x float> %wide.load252)
     def ParseFMulAdd(self):
         self.args = FMulAddArgs()
+        for token in self.tokens:
+            if("@llvm.fmuladd" in token):
+                self.args.instr = "fmuladd"
         self.args.result = self.tokens[0]
         idx = 3                             #put the index at the start of the type
         idx = self.args.result_type.Get_Type(self.tokens, idx)
@@ -404,6 +410,12 @@ class Instruction:
     def ParseMemcpy(self):
         self.args = Call_Args()
         idx = 0
+        if("getelementptr" in self.tokens):
+            """
+            Once again, llvm will have different ways of calling Memcpy, and sometimes has
+            lots of extra information in it.  This handles the case where its all weird
+            """
+            self.ParseMemcpy2()
         while(self.tokens[idx] != "("):
             idx += 1
         idx += 1
@@ -416,9 +428,13 @@ class Instruction:
         idx = self.tokens.index(",", idx)
 
         if(self.tokens[idx + 1] != "i64"):
-            print("Error, expected i64 for length type, line: " + str(self.line_num))
+            print("Error, expected i64 for length type, got: " + self.tokens[idx + 1] + "line: " + str(self.line_num))
         self.args.length = int(self.tokens[idx + 2])
         self.args.is_volatile = self.tokens[idx + 5]
+
+#call void @llvm.memcpy.p0i8.p0i8.i64(i8* noundef nonnull align 16 dereferenceable(1024) %scevgep240241, i8* noundef nonnull align 16 dereferenceable(1024) bitcast (float* getelementptr inbounds ([768 x float], [768 x float]* @rf0, i64 0, i64 512) to i8*), i64 1024, i1 false), !tbaa !4
+    def ParseMemcpy2(self):
+        print("Try switching some global variables to local, bc the clang llvm has a weird memcpy call format, that I havent implemented yet.  Switching a global to a local might fix this")
 
     #call void @llvm.memset.p0i8.i64(i8* nonnull align 16 dereferenceable(1024) bitcast (float* getelementptr inbounds ([768 x float], [768 x float]* @rf0, 
     #                                i64 0, 
