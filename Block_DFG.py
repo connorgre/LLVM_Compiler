@@ -30,17 +30,36 @@ class Block_DFG:
 
         self.createdNodes:List[dfgn.DFG_Node] = []
 
+        self.block_node:sdfgn.Block_Node = sdfgn.Block_Node()
+        self.block_node.name = "$block_" + self.block.name
+
+        self.bne_node:sdfgn.Bne_Node = sdfgn.Bne_Node()
+
+        # forcibly link these two together for now
+        self.bne_node.dep_nodes.append(self.block_node)
+        self.block_node.use_nodes.append(self.bne_node)
+
+        self.createdNodes.append(self.bne_node)
+        self.createdNodes.append(self.block_node)
+
     def Get_Inner_Vars(self, dfg):
         """
         Get the variables that are assigned within the block
         """
         for var in dfg.variables:
             if var.assignment[0] == self.block_num:
-                self.inner_vars.append(var)
+                if var not in self.inner_vars:
+                    self.inner_vars.append(var)
                 if(var.instruction.args.instr in ['br', 'ret']):
                     self.exit_node = var
                 if(var.is_phi):
                     self.phi_node = var
+                # this is only really in to make the 
+                # graph look better.  may cause problems
+                # later tho
+                if var.name == "%rf0":
+                    self.block_node.use_nodes.append(var)
+                    var.dep_nodes.append(self.block_node)
         self.Find_End_Nodes()
 
     def Get_Outer_Vars(self, dfg):
@@ -62,6 +81,8 @@ class Block_DFG:
         for var in self.inner_vars:
             end_node = True
             for use in var.uses:
+                if var == self.exit_node:
+                    continue
                 if(use[0] == self.block_num):
                     end_node = False
             if(end_node):
@@ -117,8 +138,8 @@ class Block_DFG:
         pointers
         """
         blockNodes = self.outer_vars.copy()
-        blockNodes.extend(self.inner_vars)
-        blockNodes.extend(self.createdNodes)
+        blockNodes.extend(self.inner_vars.copy())
+        blockNodes.extend(self.createdNodes.copy())
         self.graph = nx.DiGraph()
         imm_num = 0
         for node in blockNodes:
@@ -319,6 +340,7 @@ class Block_DFG:
         if the clang compiler that gets used doesn't support that, then I 
         can add in support for a multiply then add instruction
         """
+        self.Get_Vector_Len()
         #first, identify if fmuladd is in block
         fma_node:dfgn.DFG_Node = None
         for node in self.inner_vars:
@@ -327,9 +349,6 @@ class Block_DFG:
                 fma_node = node
         if self.is_macc == False:
             return
-        
-        print(self.block.name + ": is mac block")
-        print("fmuladd Node: " + fma_node.instruction.string)
 
         #now get the nodes of the operands
         mul1_var = fma_node.instruction.args.mul1
@@ -376,11 +395,11 @@ class Block_DFG:
         macc.numLoopRuns = self.Get_Iter_List(dfg)
 
         # now make sure the macc is dependent on this loop
-        macc.dep_nodes.append(self.phi_node)
-        self.phi_node.use_nodes.append(macc)
+        macc.dep_nodes.append(self.block_node)
+        self.block_node.use_nodes.append(macc)
 
-        macc.use_nodes.append(self.exit_node)
-        self.exit_node.dep_nodes.append(macc)
+        macc.use_nodes.append(self.bne_node)
+        self.bne_node.dep_nodes.append(macc)
 
         macc.name = "$macc_" + macc.accPtr.name + "_" + macc.mul1Ptr.name + "_" + macc.mul2Ptr.name
 
@@ -394,9 +413,6 @@ class Block_DFG:
         removedNode = True
         while (removedNode):
             removedNode = self.CleanupOldNodes(dfg)
-
-        self.Make_Graph_2(dfg, True)
-        self.Show_Graph()
 
     def Identify_Load_Loop(self, dfg):
         """
@@ -467,8 +483,14 @@ class Block_DFG:
             vleLoadName = str(vleNode.load_node.name)
         vleNode.name = "$vle_" + vleNode.pointer_node.name + "_" + vleLoadName
 
-        vleNode.use_nodes = call_node.use_nodes
-        vleNode.psuedo_nodes = call_node.psuedo_nodes
+        #vleNode.use_nodes = call_node.use_nodes
+        #vleNode.psuedo_nodes = call_node.psuedo_nodes
+
+        vleNode.dep_nodes.append(self.block_node)
+        self.block_node.use_nodes.append(vleNode)
+
+        vleNode.use_nodes.append(self.bne_node)
+        self.bne_node.dep_nodes.append(vleNode)
 
         vleNode.pointer_node.use_nodes.append(vleNode)
         vleNode.dep_nodes.append(vleNode.pointer_node)
@@ -476,17 +498,12 @@ class Block_DFG:
             vleNode.load_node.use_nodes.append(vleNode)
             vleNode.dep_nodes.append(vleNode.load_node)
 
-        vleNode.Print_Node()
         vleNode.Relink_Nodes(dfg, call_node)
         self.UnLinkNode(call_node, dfg)
 
         removedNode = True
         while (removedNode):
             removedNode = self.CleanupOldNodes(dfg)
-
-        self.Make_Graph_2(dfg, True)
-        self.Show_Graph()
-
 
     def Identify_Load_Loop_OLD_WONT_WORK(self, dfg):
         """
@@ -602,25 +619,28 @@ class Block_DFG:
                 # this is an an else block bc the recursive UnLink
                 # will take care of this
                 dep.use_nodes.remove(removeNode)
+                removeNode.dep_nodes.remove(dep)
 
         for use in removeNode.use_nodes.copy():
             if removeNode not in use.dep_nodes:
                 print("Error!, removeNode should be in use.depNodes")
             else:
                 use.dep_nodes.remove(removeNode)
+                removeNode.use_nodes.remove(use)
 
         if(removeNode in self.inner_vars):
             self.inner_vars.remove(removeNode)
         if(removeNode in self.outer_vars):
             self.outer_vars.remove(removeNode)
 
-    def CleanupOldNodes(self, dfg):
+    def CleanupOldNodes(self, dfg, removePhiBranch=False):
         """
         Removes all the nodes that have no uses and aren't
         'terminal' nodes, i.e. nodes that write data to
         memory.  Not super necessary, but will be useful to
         catch errors
         """
+        self.Remove_Duplicate_NodeLists()
         exemptInstrs = ['store']
         nodeList = self.inner_vars.copy()
         nodeList.extend(self.outer_vars.copy())
@@ -628,11 +648,10 @@ class Block_DFG:
         for node in nodeList:
             # any node with no instruction was explicitly 
             # created, so likely don't want to delete it
-            if node.is_vle == True:
-                continue
-            if node.is_phi == True:
-                continue
-            if node.is_macc == True:
+            if removePhiBranch == True:
+                if node.is_macc or node.is_vle:
+                    continue
+            elif node.is_special == True:
                 continue
             if node.instruction.args.instr in exemptInstrs:
                 continue
@@ -641,27 +660,48 @@ class Block_DFG:
             for psuedo in node.psuedo_nodes:
                 if psuedo in nodeUses:
                     nodeUses.remove(psuedo)
+
+            if removePhiBranch == True:
+                for use in node.use_nodes:
+                    if use.is_phi:
+                        nodeUses.remove(use)
             
             if len(nodeUses) == 0:
                 for dep in node.dep_nodes.copy():
                     if node in dep.use_nodes:
                         removedNode = True
                         dep.use_nodes.remove(node)
+                        node.dep_nodes.remove(dep)
                     else:
                         print("node should be in deps...")
                 for psuedo in node.psuedo_nodes.copy():
                     if psuedo in node.dep_nodes:
                         psuedo.use_nodes.remove(node)
+                        psuedo.psuedo_nodes.remove(node)
                         node.psuedo_nodes.remove(psuedo)
+                        node.dep_nodes.remove(psuedo)
                     elif psuedo in node.use_nodes:
                         psuedo.dep_nodes.remove(node)
+                        psuedo.psuedo_nodes.remove(node)
                         node.psuedo_nodes.remove(psuedo)
+                        node.use_nodes.remove(psuedo)
                     else:
                         print("Error, psuedo not in normal nodes")
+                        print("\t" + node.name)
+                        print("\t" + psuedo.name)
+                for use in node.use_nodes.copy():
+                    try:
+                        node.use_nodes.remove(use)
+                        use.dep_nodes.remove(node)
+                    except:
+                        print("Error removing nodes")
                 if node in self.inner_vars.copy():
                     self.inner_vars.remove(node)
-                else:
+                if node in self.outer_vars.copy():
                     self.outer_vars.remove(node)
+                if node in self.createdNodes.copy():
+                    print("\t\tRemoving created node ? ")
+                    self.createdNodes.remove(node)
         return removedNode
     
     def Get_Stride(self, dfg):
@@ -724,3 +764,112 @@ class Block_DFG:
         """
         for node in self.inner_vars:
             node.block_num = self.block_num
+
+    def Convert_Br_To_Bne(self, dfg):
+        """
+        Converts the br instruction to a bne instruction.
+        This will get rid of the br and icmp instruction, 
+        and replace it with a bne.
+        """
+        self.Fill_Block_Node_Info() #convenient spot to do this... may move later
+        assert(self.exit_node != None)
+        assert(self.exit_node.instruction.args.instr in ["br", "ret"])
+        if self.exit_node.instruction.args.instr == "ret":
+            self.bne_node.name = "$ret"
+            self.bne_node.is_bne = False
+            self.bne_node.is_ret = True
+            return
+        brNode = self.exit_node
+        bneNode = self.bne_node
+        bneNode.name = "$bne_" + self.block.name
+
+        bneNode.num_iters = int(self.self_iters)
+        bneNode.stride = int(self.stride)
+        bneNode.init_val = int(self.initial_val)
+
+        # find the icmp node right before this to get the
+        # loop limit
+        for dep in brNode.dep_nodes:
+            if dep.instruction.args.instr == "icmp":
+                assert(dep.instruction.args.comparison == "eq")
+                assert(len(dep.immediates) == 1)
+                bneNode.loop_limit = int(dep.immediates[0])
+                bneNode.always_forward = False
+
+        # now get the forward and backward targets.  I think
+        # the current logic in the branch nodes
+        # arent enough
+
+        target1 = brNode.instruction.args.true_target[1:]
+        target2 = brNode.instruction.args.false_target[1:]
+
+        if bneNode.always_forward == True:
+            assert(target1 == target2)
+        else:
+            assert(target1 != target2)
+
+        for block in dfg.block_dfgs:
+            block:Block_DFG
+            if block.block.name in [target1, target2]:
+                if block.block_num <= self.block_num:
+                    assert(bneNode.back_target == None)
+                    bneNode.back_target = block.block_node
+                    bneNode.use_nodes.append(bneNode.back_target)
+                    bneNode.back_target.dep_nodes.append(bneNode)
+                else:
+                    assert(bneNode.forward_target == None)
+                    bneNode.forward_target = block.block_node
+                    bneNode.use_nodes.append(bneNode.forward_target)
+                    bneNode.forward_target.dep_nodes.append(bneNode)
+
+        assert(bneNode.forward_target != None)
+        if bneNode.always_forward == False:
+            assert(bneNode.back_target != None)
+
+        self.Remove_Branch(dfg)
+
+    def Remove_Branch(self, dfg):
+        """
+        removes the branch instruction in this block, and the conditional 
+        that it is depenedent on.  Doesn't remove the bne, just the
+        original branch
+        """
+
+        self.Remove_Duplicate_NodeLists()
+        branchNode = self.exit_node
+        if branchNode.instruction.args.instr != "br":
+            return
+
+        for dep in branchNode.dep_nodes.copy():
+            dep.use_nodes.remove(branchNode)
+            branchNode.dep_nodes.remove(dep)
+        for use in branchNode.use_nodes.copy():
+            use.dep_nodes.remove(branchNode)
+            branchNode.use_nodes.remove(use)
+        for psuedo in branchNode.psuedo_nodes.copy():
+                psuedo.psuedo_nodes.remove(branchNode)
+                branchNode.psuedo_nodes.remove(psuedo)
+
+        self.inner_vars.remove(branchNode)
+
+    def Remove_Duplicate_NodeLists(self):
+        """
+        The code has some issues where the same thing
+        can get inserted into each nodelist multiple 
+        times.  Ensures each nodelist only contains
+        one of each node, and that no nodelist contains
+        itself
+        """
+        for node in self.inner_vars:
+            node.Remove_Duplicates()
+        for node in self.outer_vars:
+            node.Remove_Duplicates()
+        for node in self.createdNodes:
+            node.Remove_Duplicates()
+
+    def Fill_Block_Node_Info(self):
+        self.block_node.vector_len = self.vector_len
+        self.block_node.total_iters = self.num_iters
+        self.block_node.self_iters = self.self_iters
+        self.block_node.init_val = self.initial_val
+        self.block_node.stride = self.stride

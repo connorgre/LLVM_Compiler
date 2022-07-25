@@ -25,9 +25,17 @@ class DFG_Node:
     Holds one instruction, and related dfg metadata relating to it
     """
     def __init__(self, instruction=None):
+        self.is_special = False
+        self.is_ret = False
         if(instruction != None):
             self.instruction:p.Instruction = instruction              #instruction where variable is assigned
             self.name:str = instruction.args.result         #just to pull through the name to make access easier
+            if instruction.args.instr == "ret":
+                self.name = "$ret"
+                # simplifies logic bc really we don't want
+                # to do anything with ret
+                self.is_special = True
+                self.is_ret = True
         else:
             self.instruction:p.Instruction = None
             self.name:str = "DEFAULT"
@@ -48,6 +56,8 @@ class DFG_Node:
         self.is_global = False
         self.is_vle = False
         self.is_macc = False
+        self.is_bne = False
+        self.is_block = False
 
         # loop-loop change of this node
         self.stride:List[int] = []
@@ -255,8 +265,32 @@ class DFG_Node:
             print("Error, unsupported operation (just need to add it")
         return res
 
+    def Remove_Duplicates(self):
+        oldList = self.use_nodes.copy()
+        self.use_nodes.clear()
+        for node in oldList:
+            if node == self:
+                continue
+            if node not in self.use_nodes:
+                self.use_nodes.append(node)
+
+        oldList = self.dep_nodes.copy()
+        self.dep_nodes.clear()
+        for node in oldList:
+            if node == self:
+                continue
+            if node not in self.dep_nodes:
+                self.dep_nodes.append(node)
+        
+        oldList = self.psuedo_nodes.copy()
+        self.psuedo_nodes.clear()
+        for node in oldList:
+            if node == self:
+                continue
+            if node not in self.psuedo_nodes:
+                self.psuedo_nodes.append(node)
+
 def Sort_List_Index(list, indexList):
-    
     for i in range(len(list)):
         for j in range(len(list)):
             if indexList[i] > indexList[j]:

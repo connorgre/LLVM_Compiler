@@ -16,11 +16,11 @@ class VLE_Node(dfgn.DFG_Node):
     def __init__(self):
         super().__init__()
         self.is_vle = True
+        self.is_special = True
 
         self.pointer_node:dfgn.DFG_Node         = None  # the node where the pointer gets assigned
         self.load_node:dfgn.DFG_Node            = None  # the node where the pointer to the data we copy is assigned
         self.load_val:int                       = None  # if we are memsetting with an immediate
-        
         self.length = 0
 
         self.init_ptr_off  = None   # initial value of the pointer offset
@@ -47,7 +47,7 @@ class VLE_Node(dfgn.DFG_Node):
             print("\tload init Val: " + str(self.init_load_off))
         else:
             print("\tLoad: " + str(self.load_val))
-
+        print("\tLength: " + str(self.length))
 
     def Relink_Nodes(self, dfg, origCallNode:dfgn.DFG_Node):
         """
@@ -58,30 +58,11 @@ class VLE_Node(dfgn.DFG_Node):
         dfg.ReLinkNodes(self.load_node, origCallNode, self)
         return
 
-    def Fill_Immediates(self):
-        if self.load_val != None:
-            self.immediates.append(self.load_val)
-        if self.pointer_offset_node == None:
-            self.immediates.append(self.pointer_offset)
-        if self.load_offset_node == None:
-            self.immediates.append(self.load_offset)
-
-    def Get_Ptr_Offset_Info(self, dfg):
-        """
-        Figures out the initial value and stride of the offsets for VLE.  
-        The block input is the block that calls the vle node
-        """
-        self.Print_Node()
-        if self.pointer_offset_node != None:
-            self.pointer_offset_node.Get_Loop_Change(dfg)
-        if self.load_offset_node != None:
-            self.load_offset_node.Get_Loop_Change(dfg)
-        print()
-
 class Phi_Node(dfgn.DFG_Node):
     def __init__(self, instruction = None):
         super().__init__(instruction)
         self.is_phi = True
+        self.is_special = True
 
         self.init_val = None
         self.init_entry = None
@@ -114,6 +95,7 @@ class Macc_Node(dfgn.DFG_Node):
         super().__init__()
 
         self.is_macc = True
+        self.is_special = True
 
         # pointers we load from
         self.accPtr:dfgn.DFG_Node = None
@@ -170,3 +152,48 @@ class Macc_Node(dfgn.DFG_Node):
         dfg.ReLinkNodes(self.accPtr, origCallNode, self)
         dfg.ReLinkNodes(self.mul1Ptr, origCallNode, self)
         dfg.ReLinkNodes(self.mul2Ptr, origCallNode, self)
+
+class Bne_Node(dfgn.DFG_Node):
+    def __init__(self, instruction=None):
+        super().__init__(instruction)
+
+        self.is_special = True
+
+        self.loop_limit = None
+        self.loop_stride = None
+        self.init_val = None
+        self.num_iters = None
+        self.back_target:Block_Node = None
+        self.forward_target:Block_Node = None
+        self.always_forward = True  #unconditionally branch forward
+        self.is_bne = True
+    
+    def Print_Node(self, extended=False):
+        super().Print_Node(extended)
+        print("Loop limit: " + str(self.loop_limit))
+        print("Loop Stride: " + str(self.loop_stride))
+        print("loop iters: " + str(self.num_iters))
+        print("Back target: " + str(self.back_target.name))
+        print("Forward target: " + str(self.forward_target.name))
+
+class Block_Node(dfgn.DFG_Node):
+    """
+    Used in the RISC-V dfg to represent entry points for blocks
+    mostly just to make the branch target more clearly defined.
+    """
+    def __init__(self, instruction=None):
+        super().__init__(instruction)
+        self.total_iters = None
+        self.self_iters = None
+        self.init_val = None
+        self.stride = None
+        self.vector_len = None
+        self.is_special = True
+        self.is_block = True
+
+    def Print_Node(self, extended=False):
+        super().Print_Node(extended)
+        print("\titers: " + str(self.self_iters) + " : " + str(self.total_iters))
+        print("\tVector Len: " + str(self.vector_len))        
+        print("\tinit: " + str(self.init_val))
+        print("\tstride: " + str(self.stride))

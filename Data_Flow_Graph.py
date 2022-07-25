@@ -5,7 +5,10 @@ import Parse_File as pf
 import DFG_Node as dfgn
 import Block_DFG as b_dfg
 import Special_Nodes as sdfgn
-
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib import lines
+from networkx.drawing.nx_agraph import graphviz_layout
 
 """
 The naming may be a bit weird, because I decided halfway through that 'node' is a better
@@ -15,14 +18,26 @@ class Data_Flow_Graph:
     """
     The data flow graph for the file
     """
-    def __init__(self, parsed_file):
-        print('dfg creation*****')
+    def __init__(self, fileName, do_init=True, do_conv = True):
+        print('*****dfg creation*****')
+        self.par_file : pf.Parsed_File = pf.Parsed_File(fileName)
         self.variables : List[dfgn.DFG_Node] = []        #holds all variables (includes global)
         self.global_variables : List[dfgn.DFG_Node] = [] #holds only global variables
         self.branch_variables : List[dfgn.DFG_Node] = [] #holds nodes created with branch instructions
         self.phi_variables : List[dfgn.DFG_Node] = []    #holds all nodes created with phi
-        self.par_file : pf.Parsed_File = parsed_file
         self.block_dfgs : List[b_dfg.Block_DFG] = []         #list of dfgs for each block
+        self.graph = nx.DiGraph()
+        self.graphNodes = []
+        
+        if do_init:
+            self.Init_DFG()
+        if do_conv:
+            self.Convert_DFG()
+
+    def Init_DFG(self):
+        """
+        creates dfg from parsed file blocks
+        """
         self.Get_All_Variables()
         self.Create_Branch_Nodes()
         self.Get_Uses()
@@ -36,6 +51,17 @@ class Data_Flow_Graph:
         self.Fill_All_Loop_Depths()
         self.Fill_All_Block_Nums()
         
+
+    def Convert_DFG(self):
+        """
+        Converts dfg to one with vle and macc
+        instructions
+        """
+        self.Identify_Maccs()
+        self.Identify_Load_Loops()
+        self.Convert_All_Br_To_Bne()
+        self.Cleanup_All_Old_Nodes(True)
+
     def Get_All_Variables(self):
         """
         Finds all the variables in the file
@@ -48,7 +74,8 @@ class Data_Flow_Graph:
             for instr in block.instructions:
                 if(instr.args == None):
                     continue
-                if(instr.args.result != "DEFAULT"):
+                if(instr.args.result != "DEFAULT" \
+                    or instr.args.instr == "ret"):
                     #if the variable is not in the list
                     if(self.Get_Var_Idx(instr.args.result) == -1):
                         if (instr.args.instr == "phi"):
@@ -438,11 +465,13 @@ class Data_Flow_Graph:
         
         if source == None:
             return
+        source.Remove_Duplicates()
         nodes:List[dfgn.DFG_Node] = []
         self.Get_Use_Path(source, dest, nodes, doBackWardSearch)
         
         for idx in reversed(range(len(nodes)-1)):
             node = nodes[idx]
+            node.Remove_Duplicates()
             nodeUses = node.use_nodes.copy()
 
             for ps in node.psuedo_nodes:
@@ -476,7 +505,7 @@ class Data_Flow_Graph:
 
         return
 
-    def Cleanup_All_Old_Nodes(self):
+    def Cleanup_All_Old_Nodes(self, removePhiBranch=False):
         """
         potentially slow, as its worst case n^3 in the number
         of nodes, but likely will finish much quicker, and don't
@@ -486,5 +515,80 @@ class Data_Flow_Graph:
         while(removedNode):
             removedNode = False
             for block in self.block_dfgs:
-                thisRemove = block.CleanupOldNodes(self)
+                thisRemove = block.CleanupOldNodes(self, removePhiBranch)
                 removedNode = (thisRemove or removedNode)
+
+    def Make_Graph(self, show_imm=True):
+        """
+        Just makes a graph of the entire thing
+        """
+        self.graphNodes = []
+        for block in self.block_dfgs:
+            nodeList = block.inner_vars.copy()
+            nodeList.extend(block.createdNodes.copy())
+            nodeList.extend(block.outer_vars.copy())
+            for node in nodeList:
+                if node not in self.graphNodes:
+                    self.graphNodes.append(node)
+        self.graph = nx.DiGraph()
+        imm_num = 0
+        for node in self.graphNodes:
+            for use in node.use_nodes:
+                if(node in self.branch_variables):
+                    suffix_1 = "_b"
+                else:
+                    suffix_1 = "_v"
+                if(use in self.branch_variables):
+                    suffix_2 = "_b"
+                else:
+                    suffix_2 = "_v"
+                self.graph.add_edge(node.name[1:] + suffix_1 ,use.name[1:] + suffix_2)
+            if(show_imm):
+                if node.name == "%index":
+                    print("index imm")
+                for imm in node.immediates:
+                    self.graph.add_edge(str(imm) + "_i" + str(imm_num),node.name[1:] + "_v")
+                    imm_num += 1
+
+    def Show_Graph(self):
+        color_array = []
+        graphNodes = []
+        for block in self.block_dfgs:
+            for node in block.inner_vars:
+                if node not in graphNodes:
+                    graphNodes.append(node)
+        for node in self.graph.nodes:
+            if("_s" in node):
+                color_array.append((0,1,1))
+            elif(("_b" in node)):
+                color_array.append((.75, .25, .75))
+            elif("$" + node[:-2] in [var.name for var in graphNodes]):
+                color_array.append((.25, 1, .5))
+            elif(("%" + node[:-2]) in [var.name for var in graphNodes]):
+                color_array.append((0,1,0))
+            elif("@" + node[:-2] in [var.name for var in graphNodes]):
+                color_array.append((1,.25,1))
+            elif("_i" in node):
+                color_array.append((1,0,0))
+            else:
+                color_array.append((1, 1, 0))
+        plt.title("DFG")
+
+        no_uses = lines.Line2D([], [], color=(0,1,1), marker='o', markersize=10, label='no use (call, br, store)')
+        branch = lines.Line2D([],[], color = (.75,.25,.75), marker = 'o', markersize=10, label = "branch node")
+        def_in = lines.Line2D([], [], color=(0,1,0), marker='o', markersize=10, label='defined inside')
+        def_out = lines.Line2D([], [], color=(0,0,1), marker='o', markersize=10, label='defined outside')
+        def_glob = lines.Line2D([], [], color=(1,.25,1), marker='o', markersize=10, label='defined globally')
+        imm = lines.Line2D([], [], color=(1,0,0), marker='o', markersize=10, label='immediate')
+        use_out = lines.Line2D([], [], color=(1,1,0), marker='o', markersize=10, label='used outside')
+        
+        plt.legend(handles=[no_uses, branch, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
+
+        pos = graphviz_layout(self.graph, prog='dot')
+
+        nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)
+        plt.show()
+
+    def Convert_All_Br_To_Bne(self):
+        for block in self.block_dfgs:
+            block.Convert_Br_To_Bne(self)
