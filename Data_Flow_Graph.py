@@ -28,7 +28,7 @@ class Data_Flow_Graph:
         self.block_dfgs : List[b_dfg.Block_DFG] = []         #list of dfgs for each block
         self.graph = nx.DiGraph()
         self.graphNodes = []
-        
+
         if do_init:
             self.Init_DFG()
         if do_conv:
@@ -544,8 +544,6 @@ class Data_Flow_Graph:
                     suffix_2 = "_v"
                 self.graph.add_edge(node.name[1:] + suffix_1 ,use.name[1:] + suffix_2)
             if(show_imm):
-                if node.name == "%index":
-                    print("index imm")
                 for imm in node.immediates:
                     self.graph.add_edge(str(imm) + "_i" + str(imm_num),node.name[1:] + "_v")
                     imm_num += 1

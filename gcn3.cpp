@@ -25,7 +25,6 @@ int main(int argc, char const *argv[]) {
   
   float rf0 [NUM_SIMD_LANES*(TK+TM)]; //register files (first column)
 
-
   // float* rf0 = new float[NUM_SIMD_LANES*(TK+TM)]; //register files (first column)
   // float* rf1 = new float[NUM_SIMD_LANES*(TK+TM)]; //register files (second column)
   // float* rf2 = new float[NUM_SIMD_LANES*(TK+TM)]; //register files (third column)

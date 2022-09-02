@@ -58,15 +58,22 @@ class DFG_Node:
         self.is_macc = False
         self.is_bne = False
         self.is_block = False
+        self.is_other = False
 
         # loop-loop change of this node
         self.stride:List[int] = []
+
+        # number of iterations each loop runs for... inconsistently set
+        self.num_iters:List[int] = []
 
         #idk why but for the rest of these I left the node dependency and use lists
         #as the location in the blocks, rather than just as pointers to the nodes themselves.
         self.use_nodes:List[DFG_Node] = []
         self.dep_nodes:List[DFG_Node] = []
         self.psuedo_nodes:List[DFG_Node] = []
+
+        self.riscVString:str = None
+        self.vsetivliString:str = None
         
     def Print_Node(self, extended=False):
         print("Name: " + self.name)
@@ -290,6 +297,74 @@ class DFG_Node:
             if node not in self.psuedo_nodes:
                 self.psuedo_nodes.append(node)
 
+    def Get_Block_Node_1(self, searchPast1 = False):
+        """
+        gets a block node that is immediate dependency
+        technically, it isn't illegal for a node to have
+        more than 1 block node dependcy, however this 
+        compiler doesn't support if statements, so this
+        shouldn't happen for now, so assert on fail and 
+        fix later if needed
+        """
+        blockNode = None
+        for node in self.dep_nodes:
+            if node.is_block:
+                assert(blockNode == None)
+                blockNode = node
+        if searchPast1 and (blockNode == None):
+            # try to search only 1 level deeper first, if
+            # this causes error just convert to true bfs
+            for node in self.dep_nodes:
+                blockNode = node.Get_Block_Node_1(False)
+                if blockNode != None:
+                    break
+            if blockNode == None:
+                for node in self.dep_nodes:
+                    blockNode = node.Get_Block_Node_1(True)
+                    if blockNode != None:
+                        break
+
+        return blockNode
+    def Get_Bne_Node_1(self, searchPast1 = False):
+        """
+        Same comment as above
+        """
+        bneNode = None
+        for node in self.use_nodes:
+            if node.is_bne:
+                assert(bneNode == None)
+                bneNode = node
+        if searchPast1 and (bneNode == None):
+            # try to search only 1 level deeper first, if
+            # this causes error just convert to true bfs
+            for node in self.use_nodes:
+                bneNode = node.Get_Bne_Node_1(False)
+                if bneNode != None:
+                    break
+            if bneNode == None:
+                for node in self.use_nodes:
+                    bneNode = node.Get_Bne_Node_1(True)
+                    if bneNode != None:
+                        break
+        
+        return bneNode
+
+    def Remove_All_Use_And_Dep(self):
+        """
+        doesn't do psuedo nodes (made for riscV dfg,
+        those aren't used anymore)
+        """
+        for use in self.use_nodes.copy():
+            use.dep_nodes.remove(self)
+            self.use_nodes.remove(use)
+        for dep in self.dep_nodes.copy():
+            dep.use_nodes.remove(self)
+            self.dep_nodes.remove(dep)
+
+    def Get_RiscV_Instr(self):
+        assert(self.riscVString != None)
+        return self.riscVString
+
 def Sort_List_Index(list, indexList):
     for i in range(len(list)):
         for j in range(len(list)):
@@ -300,3 +375,4 @@ def Sort_List_Index(list, indexList):
                 indexList[i] = indexList[j]
                 list[j] = temp
                 indexList[j] = tempIdx
+

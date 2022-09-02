@@ -1,7 +1,6 @@
 
 
-from ast import If
-from email.policy import default
+from math import log2
 from typing import List
 import DFG_Node as dfgn
 
@@ -11,6 +10,33 @@ multiple nodes
 
 Their names will start with a $ (rather than % or @ for llvm nodes)
 """
+
+VecRegLen = 1024    # length of the vector register in 4B words
+MaxDivision = 8     # Max divisions of vector
+def GetRegFileDiv(offset):
+    # returns the how much we need to divide reg file into (for offset)
+    if offset == 0:
+        return 1
+    
+    minAlign = VecRegLen // MaxDivision
+    count = MaxDivision
+    while ((offset & minAlign == 0) and (count > 0)):
+        count >>= 1
+        minAlign <<= 1
+
+    return count
+
+def GetStartVec(offset):
+    # Gets the vector to do instruction from
+    if (offset == 0):
+        return 0
+    start = offset
+    while (start & 1 == 0):
+        start >>= 1
+    # assert that we don't have a higher index than number of divisions
+    assert(start < GetRegFileDiv(offset))
+    return start
+    
 
 class VLE_Node(dfgn.DFG_Node):
     def __init__(self):
@@ -30,6 +56,8 @@ class VLE_Node(dfgn.DFG_Node):
 
         self.ptr_stride_depth = []
         self.load_stride_depth = []
+
+        self.load_ptr_reg:str = None
 
     def Print_Node(self, extended=False):
         defaultStr = "None"
@@ -57,6 +85,108 @@ class VLE_Node(dfgn.DFG_Node):
         dfg.ReLinkNodes(self.pointer_node, origCallNode, self)
         dfg.ReLinkNodes(self.load_node, origCallNode, self)
         return
+
+    def Get_vsetivli(self):
+        """
+        Returns a string of the vsetivli instruction for this node.
+        For now, assumes rf0 points to the base of the register file
+        """
+        # this assert is bc we only load 16 floats at a time minimum,
+        # and bc the length is given as bytes, not floats (4B)
+        assert (self.length % 64 == 0)
+        retStr = "vsetivli zero, "
+        ptrOff = self.init_ptr_off
+        if self.pointer_node.name == "@stream_out":
+            ptrOff = self.init_load_off
+        numIters = str((self.length // 64)) + ", "
+        bitLen = "e32, "
+        div = "m" + str(GetRegFileDiv(ptrOff))
+        retStr += numIters + bitLen + div
+        self.vsetivliString = retStr
+        return retStr
+    
+    def Get_RiscV_Instr(self):
+        """
+        returns the RiscV instruction string
+        """
+        if (self.riscVString != None):
+            return self.riscVString
+        if "@stream_out" == self.pointer_node.name:
+            self.riscVString = self.Get_StreamOut_Str()
+            return self.riscVString
+        self.riscVString = ""
+        retStr = "vle32.v "
+        vecOffset = "v" + str(GetStartVec(self.init_ptr_off)) + ", "
+        loadPtr = ""
+        if (self.load_val != None):
+            if (self.load_val == 0):
+                loadPtr = "(x0)"
+            else:
+                print("Error, only loading 0 imm supported")
+                loadPtr = "ERROR"
+        else:
+            assert(self.load_node != None)
+            loadPtr = "(" + self.load_ptr_reg + ")"
+        loadPtrStr = None
+        if self.load_ptr_reg != None:
+            loadPtrStr = "addi " + self.load_ptr_reg + ", " + self.load_ptr_reg + ", "
+            # * 4 bc the stride is in sizeof(float), while it needs to be byte indexed
+            assert(len(self.load_stride) == 1)
+            loadPtrStr += " !" + str(self.load_stride[0] * 4) + "!"
+        self.riscVString += retStr + vecOffset + loadPtr
+        if loadPtrStr != None:
+            self.riscVString += "\n" + loadPtrStr
+        return self.riscVString
+
+    def Add_Load_Pointer_Inc(self, rdfg):
+        """
+        adds the instructions to initialize and increment the
+        register for the offset of the load pointer
+        """
+        if self.load_node == None:
+            return
+        if self.pointer_node.name == "@stream_out":
+            return
+
+        # for now assert we only have 1 type of offset
+        self.Print_Node()
+        assert(len(self.load_stride) == 1) 
+        stride:int = self.load_stride[0]
+        blockNode:Block_Node = self.Get_Block_Node_1(True)
+
+        blockNode2:Block_Node = blockNode.Get_Block_Node_1(True)
+        addNode = dfgn.DFG_Node()
+        addNode.name = self.name + "__loadOffPtr"
+        addNodeReg = rdfg.Get_And_Use_IntReg()
+
+        # not sure what memory offset to give anything else...
+        assert(self.load_node.name == "@hbm0")
+
+        addNodeInstr = "addi " + addNodeReg + ", " + hex(self.init_load_off + rdfg.memOffset)
+        addNode.riscVString = addNodeInstr
+
+        # make sure that this gets initialized in the previous block
+        addNode.dep_nodes.append(blockNode2)
+        blockNode2.use_nodes.append(addNode)
+        
+        addNode.use_nodes.append(blockNode)
+        blockNode.dep_nodes.append(addNode)
+
+        self.dep_nodes.append(addNode)
+        addNode.use_nodes.append(self)
+
+        rdfg.nodes.append(addNode)
+
+        self.load_ptr_reg = addNodeReg
+
+    def Get_StreamOut_Str(self):
+        """
+        returns streamout version of the vle
+        """
+        retStr = "streamout.v, "
+        vecOffset = "v" + str(GetStartVec(self.init_load_off))
+        return retStr + vecOffset
+
 
 class Phi_Node(dfgn.DFG_Node):
     def __init__(self, instruction = None):
@@ -117,6 +247,11 @@ class Macc_Node(dfgn.DFG_Node):
         self.mul1IdxInitVal:int = None
         self.mul2IdxInitVal:int = None
 
+        # the number of iterations we do at each block
+        self.accPtrIters = []
+        self.mul1PtrIters = []
+        self.mul2PtrIters = []
+
         # the number of times we do each loop for
         self.numLoopRuns = []
 
@@ -144,6 +279,8 @@ class Macc_Node(dfgn.DFG_Node):
         print("\tmul2Ptr init Val: " + str(self.mul2IdxInitVal))
         print()
 
+        print("\tnumLoopRuns: " + ' '.join([str(x) for x in self.numLoopRuns]))
+
     def Relink_Nodes(self, dfg, origCallNode):
         """
         Puts in the actual links for relevant nodes
@@ -152,6 +289,56 @@ class Macc_Node(dfgn.DFG_Node):
         dfg.ReLinkNodes(self.accPtr, origCallNode, self)
         dfg.ReLinkNodes(self.mul1Ptr, origCallNode, self)
         dfg.ReLinkNodes(self.mul2Ptr, origCallNode, self)
+
+    def Get_vsetivli(self):
+        #  FOR NOW, assume that the accumulate pointer is 
+        # stationary, ie it gets the v1 instead of x1
+
+        # assert that we are multiplying from the register file
+        assert(self.mul1Ptr.name == "%rf0" or self.mul2Ptr.name == "%rf0")
+        # assert that we are accumulating to register file
+        assert(self.accPtr.name == "%rf0")
+
+        instrStr = "vsetivli zero, "
+        vecNum = -1
+        for i in self.numLoopRuns[::-1]:
+            if i > 1:
+                vecNum = i
+                break
+        vecIters = str(vecNum) + ", e32, "
+        div = "m" + str(GetRegFileDiv(self.accIdxInitVal))
+
+        self.vsetivliString = instrStr + vecIters + div
+        return self.vsetivliString
+
+    def Get_RiscV_Instr(self):
+
+        retStr = ""
+        instrStr = "vmacc.vx "
+        accVec = "v" + str(GetStartVec(self.accIdxInitVal)) + ", "
+        mul2Vec = ""
+
+        if self.mul1Ptr.name == "@stream_in" or self.mul2Ptr.name == "@stream_in":
+            mul2Vec = "vs"
+        else:
+            print("ERROR, EXPECTED STREAM_IN FOR VMACC")
+            mul2Vec = "ERROR"
+
+        if self.mul1Ptr.name == "@stream_in":
+            # is this really necessary ?
+            assert(self.mul2Stride[1] == 16)
+            unRoll = self.numLoopRuns[self.mul2StrideDepth[1]]
+            start = self.mul2IdxInitVal // 16
+
+            for loop in range(start, unRoll):
+                mul1Vec = "x" + str(loop) + ", "
+                retStr += instrStr + accVec + mul1Vec + mul2Vec + "\n"
+        else:
+            print("Error, only implemented stream_in as mul1")
+            print("Solution is simply to copy paste mul1 code...")
+
+        self.riscVString = retStr
+        return retStr
 
 class Bne_Node(dfgn.DFG_Node):
     def __init__(self, instruction=None):
@@ -163,10 +350,11 @@ class Bne_Node(dfgn.DFG_Node):
         self.loop_stride = None
         self.init_val = None
         self.num_iters = None
-        self.back_target:Block_Node = None
-        self.forward_target:Block_Node = None
+        self.back_target:dfgn.DFG_Node = None
+        self.forward_target:dfgn.DFG_Node = None
         self.always_forward = True  #unconditionally branch forward
         self.is_bne = True
+
     
     def Print_Node(self, extended=False):
         super().Print_Node(extended)
@@ -176,6 +364,17 @@ class Bne_Node(dfgn.DFG_Node):
         print("Back target: " + str(self.back_target.name))
         print("Forward target: " + str(self.forward_target.name))
 
+    def Get_RiscV_Instr(self):
+        if self.always_forward == True:
+            return ""
+        assert(self.back_target.iterName != None)
+        incName = str(self.back_target.iterName)
+        retStr = "addi " + incName + ", " + incName + ", " + hex(1)
+        retStr += "\n"
+        retStr += "bne " + incName + ", " + "!" + str(self.loop_limit) + "!" + ", " + self.back_target.name
+        self.riscVString = retStr
+        return retStr
+
 class Block_Node(dfgn.DFG_Node):
     """
     Used in the RISC-V dfg to represent entry points for blocks
@@ -184,16 +383,61 @@ class Block_Node(dfgn.DFG_Node):
     def __init__(self, instruction=None):
         super().__init__(instruction)
         self.total_iters = None
-        self.self_iters = None
+        self.num_iters = None
         self.init_val = None
         self.stride = None
         self.vector_len = None
         self.is_special = True
         self.is_block = True
 
+        self.iterName = None
+
     def Print_Node(self, extended=False):
         super().Print_Node(extended)
-        print("\titers: " + str(self.self_iters) + " : " + str(self.total_iters))
+        print("\titers: " + str(self.num_iters) + " : " + str(self.total_iters))
         print("\tVector Len: " + str(self.vector_len))        
         print("\tinit: " + str(self.init_val))
         print("\tstride: " + str(self.stride))
+
+    def Is_Terminal_Loop(self):
+        """
+        returns true, and the node we found ourself from
+        if there are no more nested loops
+        within this one.  For now, only safe to call within
+        a RiscV_dfg after the block and bne nodes have been
+        processed to remove useless ones
+        """
+        nodeList:List[dfgn.DFG_Node] = self.use_nodes.copy()
+        searchedNodes:List[dfgn.DFG_Node] = []
+        found_self = False
+        bneNode = None
+        while len(nodeList) > 0 and found_self == False:
+            for node in nodeList.copy():
+                nodeList.remove(node)
+                searchedNodes.append(node)
+                if node.is_block and node != self:
+                    # don't try to find ourself through another block
+                    continue
+                for use in node.use_nodes:
+                    if use == self:
+                        assert(node.is_bne)
+                        found_self = True
+                        bneNode = node
+                        break
+                    if use not in searchedNodes and use not in nodeList:
+                        nodeList.append(use)
+        return (found_self, bneNode)
+
+    def Get_RiscV_Instr(self):
+        assert(self.iterName != None)
+        retStr = "addi " + self.iterName + ", " + "x0, 0x000"
+        retStr += "\n"
+        retStr += self.name + ":"
+        self.riscVString = retStr
+        return retStr
+    
+    def Get_IterName(self, iterName:str = None):
+        if iterName == None:
+            self.iterName = "!" + self.name + "!"
+        else:
+            self.iterName = iterName

@@ -54,12 +54,6 @@ class Block_DFG:
                     self.exit_node = var
                 if(var.is_phi):
                     self.phi_node = var
-                # this is only really in to make the 
-                # graph look better.  may cause problems
-                # later tho
-                if var.name == "%rf0":
-                    self.block_node.use_nodes.append(var)
-                    var.dep_nodes.append(self.block_node)
         self.Find_End_Nodes()
 
     def Get_Outer_Vars(self, dfg):
@@ -316,14 +310,18 @@ class Block_DFG:
             print("Expected compare node to have only 1 immediate on assignment")
         increment_val = int(compareNode.immediates[0])
 
+        self.Get_Vector_Len()
+
         #put it all together now
-        self.self_iters = int((loop_limit - initial_val)/increment_val)
+        self.self_iters = abs((int((loop_limit - initial_val)/increment_val)) // self.vector_len)
 
     def Get_Vector_Len(self):
         """
         Gets the length of the vectors used within the block
         """
         for var in self.inner_vars:
+            if var.instruction == None:
+                continue
             res_type = var.instruction.args.result_type
             if res_type == None:
                 continue
@@ -341,13 +339,18 @@ class Block_DFG:
         can add in support for a multiply then add instruction
         """
         self.Get_Vector_Len()
+
         #first, identify if fmuladd is in block
         fma_node:dfgn.DFG_Node = None
+        foundMacc = False
         for node in self.inner_vars:
+            if node.instruction == None:
+                continue
             if node.instruction.args.instr == "fmuladd":
                 self.is_macc = True
                 fma_node = node
-        if self.is_macc == False:
+                foundMacc = True
+        if foundMacc == False:
             return
 
         #now get the nodes of the operands
@@ -390,7 +393,7 @@ class Block_DFG:
         macc.mul1IdxInitVal = mul1PtrInfo[1].Get_Initial_Val()
 
         (macc.mul2Stride, macc.mul2StrideDepth) = mul2PtrInfo[1].Get_Full_Stride()
-        macc.mul1IdxInitVal = mul2PtrInfo[1].Get_Initial_Val()
+        macc.mul2IdxInitVal = mul2PtrInfo[1].Get_Initial_Val()
 
         macc.numLoopRuns = self.Get_Iter_List(dfg)
 
@@ -413,6 +416,7 @@ class Block_DFG:
         removedNode = True
         while (removedNode):
             removedNode = self.CleanupOldNodes(dfg)
+
 
     def Identify_Load_Loop(self, dfg):
         """
@@ -620,6 +624,9 @@ class Block_DFG:
                 # will take care of this
                 dep.use_nodes.remove(removeNode)
                 removeNode.dep_nodes.remove(dep)
+                if dep in removeNode.psuedo_nodes.copy():
+                    dep.psuedo_nodes.remove(removeNode)
+                    removeNode.psuedo_nodes.remove(dep)
 
         for use in removeNode.use_nodes.copy():
             if removeNode not in use.dep_nodes:
@@ -627,6 +634,9 @@ class Block_DFG:
             else:
                 use.dep_nodes.remove(removeNode)
                 removeNode.use_nodes.remove(use)
+                if use in removeNode.psuedo_nodes.copy():
+                    use.psuedo_nodes.remove(removeNode)
+                    removeNode.psuedo_nodes.remove(use)
 
         if(removeNode in self.inner_vars):
             self.inner_vars.remove(removeNode)
@@ -672,6 +682,9 @@ class Block_DFG:
                         removedNode = True
                         dep.use_nodes.remove(node)
                         node.dep_nodes.remove(dep)
+                        if dep in node.psuedo_nodes:
+                            dep.psuedo_nodes.remove(node)
+                            node.psuedo_nodes.remove(dep)
                     else:
                         print("node should be in deps...")
                 for psuedo in node.psuedo_nodes.copy():
@@ -689,10 +702,14 @@ class Block_DFG:
                         print("Error, psuedo not in normal nodes")
                         print("\t" + node.name)
                         print("\t" + psuedo.name)
+
                 for use in node.use_nodes.copy():
                     try:
                         node.use_nodes.remove(use)
                         use.dep_nodes.remove(node)
+                        if use in node.psuedo_nodes:
+                            use.psuedo_nodes.remove(node)
+                            node.psuedo_nodes.remove(use)
                     except:
                         print("Error removing nodes")
                 if node in self.inner_vars.copy():
@@ -870,6 +887,6 @@ class Block_DFG:
     def Fill_Block_Node_Info(self):
         self.block_node.vector_len = self.vector_len
         self.block_node.total_iters = self.num_iters
-        self.block_node.self_iters = self.self_iters
+        self.block_node.num_iters = self.self_iters
         self.block_node.init_val = self.initial_val
         self.block_node.stride = self.stride
