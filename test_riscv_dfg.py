@@ -5,6 +5,7 @@ dfg = DFG.Data_Flow_Graph('gcn3_strip.ll')
 
 rdfg = RDFG.RiscV_dfg(dfg, False)
 
+rdfg.Show_Graph()
 rdfg.Remove_WorkNode_Links()
 rdfg.Remove_Empty_Blocks()
 rdfg.Remove_Pass_Through_Bne()
