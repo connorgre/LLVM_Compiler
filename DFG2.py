@@ -3,7 +3,7 @@ import Instruction_Block as ib
 import Parser as p
 import Parse_File as pf
 import DFG_Node2 as dfgn
-import Block_DFG as b_dfg
+import Block_DFG2 as b_dfg
 import SDFG_Node2 as sdfgn
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -21,17 +21,26 @@ class DFG:
     """
     parsedFile:pf.Parsed_File
     nodes:"list[dfgn.DFG_Node]"
-    globalVars:"list[dfgn.DFG_Node]"
+    globalNodes:"list[dfgn.DFG_Node]"
     phiNodes:"list[sdfgn.Phi_Node]"
     branchNodes:"list[dfgn.DFG_Node]"
-    
+    blockDFGs:"list[b_dfg.Block_DFG]"
+    graph:"nx.DiGraph"
+
     def __init__(self, fileName, do_init=True):
-        self.parsedFile = pf.ParsedFile(fileName)
+        self.parsedFile     = pf.Parsed_File(fileName)
+        self.blockDFGs      = []
+        self.nodes          = []
+        self.globalNodes     = []
+        self.phiNodes       = []
+        self.branchNodes    = []
         if (do_init):
             self.Init_DFG()
 
     def Init_DFG(self):
         self.Get_All_Variables()
+        self.Link_Nodes()
+        self.Create_Block_DFGs()
         return
 
     def Get_All_Variables(self):
@@ -40,41 +49,58 @@ class DFG:
         """
         # first get the globals
         self.Get_Global_Variables()
-        numNew = 0
         for bIdx in range(len(self.parsedFile.blocks)):
             block = self.parsedFile.Get_Order_Idx(bIdx)
             ordIdx = block.block_order
             for instr in block.instructions:
                 if instr.args == None:
                     continue
-                if (instr.args.result != "DEFUALT" or instr.args.instr == "ret"):
+                if (instr.args.result != "DEFAULT" or instr.args.instr == "ret"):
                     # if the variable isn't in the list yet
-                    if self.Get_Node_By_Name(instr.args.result) != None:
+                    if self.Get_Node_By_Name(instr.args.result) == None:
+                        node = None
                         if (instr.args.instr == "phi"):
                             node = sdfgn.Phi_Node(instr)
                             self.phiNodes.append(node)
                         else:
                             node = dfgn.DFG_Node(instr)
                         assert(instr.block_offset != -1)
-                    node.assignment = (ordIdx, instr.block_offset)
-                    self.nodes.append(node)
-                elif (instr.args.instr in ["call", "store"]):
-                    newNode = dfgn.DFG_Node(instr)
-                    newNode.name = "$" + instr.args.instr + "_" + str(numNew)
-                    newNode.assignment = (ordIdx, instr.block_offset)
-                    numNew += 1
-                    self.nodes.append(newNode)
-                    warnings.warn("take prints out, j wanna make sure it works")
-                    print(newNode.name)
+                        node.assignment = (ordIdx, instr.block_offset)
+                        self.nodes.append(node)
+                    else:
+                        # will be a call (memset/memcpy) or store
+                        assert(instr.args.instr in ["call", "store"])
+                        nodeName:str = None
+                        if instr.args.instr == "store":
+                            nodeName = "store_" + instr.args.result
+                        else:
+                            if instr.args.function == "@llvm.memcpy.p0i8.p0i8.i64":
+                                nodeName = "$memcpy_" + instr.args.result
+                            elif instr.args.function == "@llvm.memset.p0i8.i64":
+                                nodeName = "$memset_" + instr.args.result
+                            else:
+                                assert(False)
+                        if (self.Get_Node_By_Name(nodeName) != None):
+                            warnings.warn("Error, node already has this name\
+                                            MUST MODIFY CODE")
+                        newNode = dfgn.DFG_Node(instr)
+                        newNode.name = nodeName
+                        newNode.assignment = (ordIdx, instr.block_offset)
+                        self.nodes.append(newNode)
+                        print(newNode.name)
                 elif (instr.args.instr == "br"):
                     node = dfgn.DFG_Node(instr)
                     node.name = "%" + block.name
-                    node.assignment = ((ordIdx, instr.block_offset))
+                    node.assignment = (ordIdx, instr.block_offset)
                     self.branchNodes.append(node)
                     self.nodes.append(node)
         return
 
     def Get_Node_By_Name(self, name:str):
+        """
+        Gets a node by its name from nodes,
+        returns None if the node doesn't exist
+        """
         retNode = None
         for node in self.nodes:
             if node.name == name:
@@ -86,38 +112,44 @@ class DFG:
         """
         Easier to just handle the global variables seperately
         """
-        for instr in self.par_file.Instructions:
+        for instr in self.parsedFile.Instructions:
             if(instr.args == None):
                 continue
             if(instr.args.result[0] == '@'):
-                # if this isnt in the variable list yet
-                if(self.Get_Var_Idx(instr.args.result) == -1):
-                    node = dfgn.DFG_Node(instr)
-                    node.assignment = (-1, instr.instr_num) # -1 to indicate that it is a global variable
-                    self.variables.append(node)
-                    self.global_variables.append(node)
+                assert(self.Get_Node_By_Name(instr.args.result) == None)
+                node = dfgn.DFG_Node(instr)
+                node.assignment = (-1, instr.instr_num) # -1 to indicate that it is a global variable
+                self.nodes.append(node)
+                self.globalNodes.append(node)
         return
 
     def Link_Nodes(self):
         """
         Goes through all nodes and links them to each other, creating the dfg
         """
+        searchedNodes:"list[dfgn.DFG_Node]" = []
         for node in self.nodes:
+            assert(node not in searchedNodes)
+            searchedNodes.append(node)
             if node.instruction.args == None:
                 warnings.warn("don't think this should happen")
                 continue
-            for use in node.instruction.args.vars_used:
-                useNode = self.Get_Node_By_Name(use)
-                if useNode == None:
-                    # it is either an immediate, or a store/call
-                    assert(use.isnumeric())
-                    node.immediates.append(int(use))
+            for dep in node.instruction.args.vars_used:
+                depNode = self.Get_Node_By_Name(dep)
+                if depNode == None:
+                    # MUST be an immediate
+                    assert(dep.isnumeric())
+                    node.immediates.append(int(dep))
                 else:
-                    assert(useNode != node)
-                    assert(node.Check_Connected(useNode) == False)
-                    node.Add_Use(useNode)
-                    assert(useNode in node.Get_Uses())
-                    assert(node in useNode.Get_Deps())
+                    if depNode != node:
+                        if node.Check_Connected(depNode) == True:
+                            assert(depNode.Get_Type() == "phi" or node.Get_Type() == "phi")
+                            assert(depNode in searchedNodes)
+                            node.Add_Dep(depNode)
+                        else:
+                            node.Add_Dep(depNode)
+                            assert(node in depNode.Get_Uses())
+                            assert(depNode in node.Get_Deps())
         self.Link_Branch_To_Phi()
         return
 
@@ -139,13 +171,91 @@ class DFG:
         """
         creates smaller dfgs of basic blocks (ie no looping)
         """
-        for b_idx in range(len(self.par_file.blocks)):
-            block = self.par_file.Get_Order_Idx(b_idx)
-            block_dfg = b_dfg.Block_DFG(block)
-            block_dfg.Get_Inner_Vars(self)
-            block_dfg.Get_Outer_Vars(self)
-            block_dfg.Get_Vector_Len()
-            self.block_dfgs.append(block_dfg)
-        
-        for block in self.block_dfgs:
-            block.Get_Self_Iters(self)
+        for b_idx in range(len(self.parsedFile.blocks)):
+            block = self.parsedFile.Get_Order_Idx(b_idx)
+            block_dfg = b_dfg.Block_DFG(self, block)
+            block_dfg.Init_Block_1()
+            self.blockDFGs.append(block_dfg)
+
+        for block in self.blockDFGs:
+            block.Init_Block_2()
+
+        for block in self.blockDFGs:
+            block.Init_Block_3()
+
+    def Make_Graph(self, showImm=True):
+        """
+        Makes a networkX graph
+        """
+        self.graph = nx.DiGraph()
+        imm_num = 0
+        for node in self.nodes:
+            for use in node.Get_Uses():
+                if node in self.branchNodes:
+                    suffix1 = "_b"
+                else:
+                    suffix1 = "_v"
+                if use in self.branchNodes:
+                    suffix2 = "_b"
+                else:
+                    suffix2 = "_v"
+                self.graph.add_edge(node.name[1:] + suffix1 ,use.name[1:] + suffix2)
+            if (showImm):
+                for imm in node.immediates:
+                    self.graph.add_edge(str(imm) + "_i" + str(imm_num),node.name[1:] + "_v")
+                    imm_num += 1
+
+    def Show_Graph(self):
+        color_array = []
+        self.Make_Graph()
+
+        for node in self.graph.nodes:
+            if("_s" in node):
+                color_array.append((0,1,1))
+            elif(("_b" in node)):
+                color_array.append((.75, .25, .75))
+            elif("$" + node[:-2] in [var.name for var in self.nodes]):
+                color_array.append((.25, 1, .5))
+            elif(("%" + node[:-2]) in [var.name for var in self.nodes]):
+                color_array.append((0,1,0))
+            elif("@" + node[:-2] in [var.name for var in self.nodes]):
+                color_array.append((1,.25,1))
+            elif("_i" in node):
+                color_array.append((1,0,0))
+            else:
+                color_array.append((1, 1, 0))
+        plt.title("DFG")
+
+        no_uses = lines.Line2D([], [], color=(0,1,1), marker='o', markersize=10, label='no use (call, br, store)')
+        branch = lines.Line2D([],[], color = (.75,.25,.75), marker = 'o', markersize=10, label = "branch node")
+        def_in = lines.Line2D([], [], color=(0,1,0), marker='o', markersize=10, label='defined inside')
+        def_out = lines.Line2D([], [], color=(0,0,1), marker='o', markersize=10, label='defined outside')
+        def_glob = lines.Line2D([], [], color=(1,.25,1), marker='o', markersize=10, label='defined globally')
+        imm = lines.Line2D([], [], color=(1,0,0), marker='o', markersize=10, label='immediate')
+        use_out = lines.Line2D([], [], color=(1,1,0), marker='o', markersize=10, label='used outside')
+
+        plt.legend(handles=[no_uses, branch, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
+
+        pos = graphviz_layout(self.graph, prog='dot')
+
+        nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)
+        plt.show()
+
+    def Remove_Node(self, node:dfgn.DFG_Node):
+        """
+        removes a node from all blocks and dfg lists.
+        Doesn't remove the node from any dependency or use lists
+        """
+        assert(node in self.nodes)
+        self.nodes.remove(node)
+        if node in self.globalNodes:
+            self.globalNodes.remove(node)
+        if node in self.branchNodes:
+            self.branchNodes.remove(node)
+        if node in self.phiNodes:
+            self.phiNodes.remove(node)
+        for block in self.blockDFGs:
+            nodeList = block.Get_All_Nodes()
+            if node in nodeList:
+                block.Remove_Node(node)
+        return

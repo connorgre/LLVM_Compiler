@@ -1,6 +1,6 @@
 from typing import List
 from regex import D
-import Parser as p 
+import Parser as p
 
 def Do_Immediate_Op(val, node):
     """
@@ -41,13 +41,13 @@ class DFG_Node:
             self.name:str = "DEFAULT"
 
         self.assignment = (-1, -1)                  #tuple with (block, instr) -- the block and offset into the block the var is assigned
-        self.uses = []                              #list of (block, instr) -- locations var is used 
+        self.uses = []                              #list of (block, instr) -- locations var is used
         self.psuedo_uses = []                       #uses generated as a result of 'fake' going into a branch instruction
         self.dependencies = []                      #list of the 1 level up dependencies of this variable
         self.psuedo_dependencies = []               #dependencies generated as a result of an 'end' node going into a branch node
         self.immediates = []                        #the immediates used in the assignment of this node
         self.is_loop_control = False                #true if this is a register related to loop control (ie loop index)
-        
+
         self.loop_depth = None
 
         self.block_num = None
@@ -74,7 +74,7 @@ class DFG_Node:
 
         self.riscVString:str = None
         self.vsetivliString:str = None
-        
+
     def Print_Node(self, extended=False):
         print("Name: " + self.name)
         print("Assigned: " + "(" + str(self.assignment[0]) + "," + str(self.assignment[1]) + ")")
@@ -84,7 +84,7 @@ class DFG_Node:
         print("Uses: ")
         for node in self.use_nodes:
             print("\t" + node.name)
-        
+
         if(extended):
             print("Psuedo: ")
             for node in self.psuedo_nodes:
@@ -109,7 +109,7 @@ class DFG_Node:
         won't get run on all nodes tho
         """
         # first find the 'root' phi node for this
-        
+
         print("Getting loop change: " + self.name)
         depth = 1
         stride = None
@@ -121,7 +121,7 @@ class DFG_Node:
             depth +=1
         if depth == 20:
             print("need to increase Get_Loop_Change depth")
-        
+
         print([node.name for node in nodeList])
 
         if len(nodeList) == 0:
@@ -141,7 +141,7 @@ class DFG_Node:
         self.stride.append(stride)
         print("Stride= " + str(stride))
         return
-        
+
     def Get_Pointer_Info(self, dfg):
         """
         This function asserts that the node were acting on
@@ -172,7 +172,7 @@ class DFG_Node:
             assert(False)
 
         return [ptrNode, offsetNode, offset]
-        
+
     def Get_Full_Stride(self):
         """
         Similar to get Loop-Loop Change, except that this
@@ -221,7 +221,7 @@ class DFG_Node:
             (strideList2, blockDepth2) = self.dep_nodes[1].Get_Full_Stride()
             strideList1.extend(strideList2)
             blockDepth1.extend(blockDepth2)
-        
+
         Sort_List_Index(strideList1, blockDepth1)
         return (strideList1, blockDepth1)
 
@@ -251,7 +251,7 @@ class DFG_Node:
 
             val = self.dep_nodes[0].Get_Initial_Val()
             val2 = self.dep_nodes[1].Get_Initial_Val()
-            
+
             val = self.Do_Node_Op(val, val2)
 
         return val
@@ -259,7 +259,7 @@ class DFG_Node:
     def Do_Node_Op(self, op1, op2):
         """
         Does the operation specified in the node, after
-        the values have been decided 
+        the values have been decided
         """
         res = 0
         if self.instruction.args.instr == "add":
@@ -288,7 +288,7 @@ class DFG_Node:
                 continue
             if node not in self.dep_nodes:
                 self.dep_nodes.append(node)
-        
+
         oldList = self.psuedo_nodes.copy()
         self.psuedo_nodes.clear()
         for node in oldList:
@@ -301,9 +301,9 @@ class DFG_Node:
         """
         gets a block node that is immediate dependency
         technically, it isn't illegal for a node to have
-        more than 1 block node dependcy, however this 
+        more than 1 block node dependcy, however this
         compiler doesn't support if statements, so this
-        shouldn't happen for now, so assert on fail and 
+        shouldn't happen for now, so assert on fail and
         fix later if needed
         """
         blockNode = None
@@ -346,7 +346,7 @@ class DFG_Node:
                     bneNode = node.Get_Bne_Node_1(True)
                     if bneNode != None:
                         break
-        
+
         return bneNode
 
     def Remove_All_Use_And_Dep(self):

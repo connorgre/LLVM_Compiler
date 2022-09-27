@@ -10,7 +10,7 @@ class Instruction_Args:
         self.instr_type = "DEFAULT"
         self.flags = []
         self.result = "DEFAULT"
-        self.result_type = None
+        self.result_type:Arg_Type = None
         self.vars_used:"list[str]" = []     #this is only for the dfg to make accessing variable names easier
     def printArgs(self):
         print("\tInstruction: " + self.instr + ", type: " + self.instr_type)

@@ -17,7 +17,7 @@ def GetRegFileDiv(offset):
     # returns the how much we need to divide reg file into (for offset)
     if offset == 0:
         return 1
-    
+
     minAlign = VecRegLen // MaxDivision
     count = MaxDivision
     while ((offset & minAlign == 0) and (count > 0)):
@@ -36,7 +36,6 @@ def GetStartVec(offset):
     # assert that we don't have a higher index than number of divisions
     assert(start < GetRegFileDiv(offset))
     return start
-    
 
 class VLE_Node(dfgn.DFG_Node):
     def __init__(self):
@@ -62,7 +61,7 @@ class VLE_Node(dfgn.DFG_Node):
     def Print_Node(self, extended=False):
         defaultStr = "None"
         super().Print_Node(extended)
-        
+
         print("\tPointer: " + self.pointer_node.name)
         print("\tptr Stride: " + ', '.join([str(x) for x in self.ptr_stride]))
         print("\tptr Stride Depth: " + ' '.join([str(x) for x in self.ptr_stride_depth]))
@@ -80,8 +79,8 @@ class VLE_Node(dfgn.DFG_Node):
     def Relink_Nodes(self, dfg, origCallNode:dfgn.DFG_Node):
         """
         This will move the uses of the node that uses this around
-        And will 
-        """       
+        And will
+        """
         dfg.ReLinkNodes(self.pointer_node, origCallNode, self)
         dfg.ReLinkNodes(self.load_node, origCallNode, self)
         return
@@ -104,7 +103,7 @@ class VLE_Node(dfgn.DFG_Node):
         retStr += numIters + bitLen + div
         self.vsetivliString = retStr
         return retStr
-    
+
     def Get_RiscV_Instr(self):
         """
         returns the RiscV instruction string
@@ -150,7 +149,7 @@ class VLE_Node(dfgn.DFG_Node):
 
         # for now assert we only have 1 type of offset
         self.Print_Node()
-        assert(len(self.load_stride) == 1) 
+        assert(len(self.load_stride) == 1)
         stride:int = self.load_stride[0]
         blockNode:Block_Node = self.Get_Block_Node_1(True)
 
@@ -168,7 +167,7 @@ class VLE_Node(dfgn.DFG_Node):
         # make sure that this gets initialized in the previous block
         addNode.dep_nodes.append(blockNode2)
         blockNode2.use_nodes.append(addNode)
-        
+
         addNode.use_nodes.append(blockNode)
         blockNode.dep_nodes.append(addNode)
 
@@ -202,14 +201,14 @@ class Phi_Node(dfgn.DFG_Node):
 
         self.Fill_Phi_Info()
 
-    
+
     def Fill_Phi_Info(self):
         self.init_val   = self.instruction.args.block_list[0].value
         self.init_entry = self.instruction.args.block_list[0].predecessor
 
         for phiBlock in self.instruction.args.block_list:
             self.val_dict[phiBlock.predecessor] = phiBlock.value
-        
+
     def Get_Second_Val(self, dfg):
         ret_names = []
         for phiBlock in self.instruction.args.block_list:
@@ -217,7 +216,7 @@ class Phi_Node(dfgn.DFG_Node):
                 ret_names.append(self.val_dict[phiBlock.predecessor])
         if (len(ret_names) != 1):
             print("Error, phi block has too many (or few) entry points")
-        
+
         return dfg.Get_Node_By_Name(ret_names[0])
 
 class Macc_Node(dfgn.DFG_Node):
@@ -236,19 +235,19 @@ class Macc_Node(dfgn.DFG_Node):
         self.accStride:List[int] = []
         self.mul1Stride:List[int] = []
         self.mul2Stride:List[int] = []
-    
+
         # corresponding depth for the strides
         self.accStrideDepth:List[int] = []
         self.mul1StrideDepth:List[int] = []
         self.mul2StrideDepth:List[int] = []
 
         # initial values for the pointers
-        self.accIdxInitVal:int = None
+        self.accIdxInitVal :int = None
         self.mul1IdxInitVal:int = None
         self.mul2IdxInitVal:int = None
 
         # the number of iterations we do at each block
-        self.accPtrIters = []
+        self.accPtrIters  = []
         self.mul1PtrIters = []
         self.mul2PtrIters = []
 
@@ -291,7 +290,7 @@ class Macc_Node(dfgn.DFG_Node):
         dfg.ReLinkNodes(self.mul2Ptr, origCallNode, self)
 
     def Get_vsetivli(self):
-        #  FOR NOW, assume that the accumulate pointer is 
+        #  FOR NOW, assume that the accumulate pointer is
         # stationary, ie it gets the v1 instead of x1
 
         # assert that we are multiplying from the register file
@@ -355,7 +354,7 @@ class Bne_Node(dfgn.DFG_Node):
         self.always_forward = True  #unconditionally branch forward
         self.is_bne = True
 
-    
+
     def Print_Node(self, extended=False):
         super().Print_Node(extended)
         print("Loop limit: " + str(self.loop_limit))
@@ -395,7 +394,7 @@ class Block_Node(dfgn.DFG_Node):
     def Print_Node(self, extended=False):
         super().Print_Node(extended)
         print("\titers: " + str(self.num_iters) + " : " + str(self.total_iters))
-        print("\tVector Len: " + str(self.vector_len))        
+        print("\tVector Len: " + str(self.vector_len))
         print("\tinit: " + str(self.init_val))
         print("\tstride: " + str(self.stride))
 
@@ -435,7 +434,7 @@ class Block_Node(dfgn.DFG_Node):
         retStr += self.name + ":"
         self.riscVString = retStr
         return retStr
-    
+
     def Get_IterName(self, iterName:str = None):
         if iterName == None:
             self.iterName = "!" + self.name + "!"

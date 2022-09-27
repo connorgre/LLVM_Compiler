@@ -107,7 +107,7 @@ class Block_DFG:
                     if(var in self.outer_vars and to_var not in self.inner_vars):
                         continue
                     #use var.name[1:], because llvm variables start with %, which causes a bug
-                    #in the graphviz library where it reads the % as a special character and 
+                    #in the graphviz library where it reads the % as a special character and
                     #causes an error, so simple solution is to just ignore it for the graph
                     if(var in dfg.branch_variables):
                         suffix_1 = "_b"
@@ -127,7 +127,7 @@ class Block_DFG:
 
     def Make_Graph_2(self, dfg, show_imm=True):
         """
-        Uses node pointer lists of the inner vars rather than the location 
+        Uses node pointer lists of the inner vars rather than the location
         pointers
         """
         blockNodes = self.outer_vars.copy()
@@ -206,13 +206,13 @@ class Block_DFG:
         def_glob = lines.Line2D([], [], color=(1,.25,1), marker='o', markersize=10, label='defined globally')
         imm = lines.Line2D([], [], color=(1,0,0), marker='o', markersize=10, label='immediate')
         use_out = lines.Line2D([], [], color=(1,1,0), marker='o', markersize=10, label='used outside')
-        
+
         plt.legend(handles=[no_uses, branch, def_in, def_out, def_glob,imm, use_out], bbox_to_anchor=(1, 1), bbox_transform=plt.gcf().transFigure)
 
         pos = graphviz_layout(self.graph, prog='dot')
 
         # this is here bc the layout has the node for
-        # 12 on a line and it makes it hard to 
+        # 12 on a line and it makes it hard to
         # tell whats going on, so scoot it over a bit
         # no functional difference if this is taken out
         if "12_v" in pos:
@@ -224,22 +224,21 @@ class Block_DFG:
         nx.draw(self.graph, pos, with_labels=True, font_size=6, node_color=color_array)
         plt.show()
 
-
     # this function does make a few assumptions about teh
-    # structure of loops, and the dataflow in assigning and 
+    # structure of loops, and the dataflow in assigning and
     # incrementing the loop indices.  This should
     # work for simple loops where very little transformation is done
     # on the loop counter
     def Get_Self_Iters(self, dfg):
         """
         Gets the number of iterations the block will run for.
-            -   Self.self_iters = number of iterations required for the exit 
+            -   Self.self_iters = number of iterations required for the exit
                 condition of this loop
             -   Self.total_iters = number of iterations it will go for in total
-        This requires the number of iterations a loop 
-        will run for to be a constant. I believe this 
+        This requires the number of iterations a loop
+        will run for to be a constant. I believe this
         is an assumption that can be made based on the gcn file. It would
-        be much more complicated otherwise, and impossible if the value is 
+        be much more complicated otherwise, and impossible if the value is
         something read in from memory.
         """
         # only get self_iters if we're an entry block
@@ -259,10 +258,10 @@ class Block_DFG:
         entry_node = self.inner_vars[0]
         if(entry_node.instruction.args.instr != "phi"):
             print("Error, expected phi as first instruction in for loop")
-        
-        #get the initial value for the loop. it is 0 for 
-        #gcn, but it can be any constant int
-        prev_branch = None  #This is the node that branched into this one
+
+        # get the initial value for the loop. it is 0 for
+        # gcn, but it can be any constant int
+        prev_branch = None  # This is the node that branched into this one
         for var in entry_node.dependencies:
             if var[0] < self.block_num:
                 prev_branch = dfg.Get_Node_Block_Offset(var)
@@ -285,14 +284,14 @@ class Block_DFG:
                 compareVar = node.instruction.args.op1
                 compareImm = node.instruction.args.op2
         loop_limit = int(compareImm)
-        
+
         #find the value that we increment the loop by
         compareNode:dfgn.DFG_Node = dfg.Get_Node_By_Name(compareVar)
 
         if compareNode == entry_node and \
             loop_limit == initial_val and \
             exit_node.instruction.args.false_target[1:] == self.block.name:
-            #This is the special case where we are only looping once. 
+            #This is the special case where we are only looping once.
             #for some reason llvm ir doesn't use the .next variable, but rather compares
             #the initial variable with its initial value.  This makes no sense for clang to do
             #but whatever
@@ -333,8 +332,8 @@ class Block_DFG:
     def Identify_Macc(self, dfg):
         """
         This identifies the mutliply accumulate function dataflow pattern
-        Right now it requires the llvm to compile down to a fmuladd, but 
-        if the clang compiler that gets used doesn't support that, then I 
+        Right now it requires the llvm to compile down to a fmuladd, but
+        if the clang compiler that gets used doesn't support that, then I
         can add in support for a multiply then add instruction
         """
         self.Get_Vector_Len()
@@ -362,7 +361,7 @@ class Block_DFG:
         mul2_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(mul2_var)
         add_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(add_var)
         res_node:dfgn.DFG_Node = dfg.Get_Node_By_Name(res_var)
-        
+
         if(res_node != fma_node):
             print("res node != fma node (very odd error to have)")
 
@@ -411,16 +410,15 @@ class Block_DFG:
         macc.Relink_Nodes(dfg, fma_node)
         self.UnLinkNode(fma_node, dfg)
         self.UnLinkNode(res_store_node, dfg)
-        
+
         removedNode = True
         while (removedNode):
             removedNode = self.CleanupOldNodes(dfg)
 
-
     def Identify_Load_Loop(self, dfg):
         """
-        Identifies the loops where we are loading data from memory into the 
-        register file.  Basically, this is any loop with memset/memcpy in it, 
+        Identifies the loops where we are loading data from memory into the
+        register file.  Basically, this is any loop with memset/memcpy in it,
         which doesn't output to stream_out. This
         Should make doing the vsetivli and the vle32.v simpler.
         """
@@ -447,8 +445,8 @@ class Block_DFG:
                 load_node = node
             if node.name == res_name:
                 res_node = node
-        # res_node can't be done. Need to store this 
-        # somewhere. load_node can be if were loading an 
+        # res_node can't be done. Need to store this
+        # somewhere. load_node can be if were loading an
         # immediate value
         assert(res_node != None)
 
@@ -465,19 +463,19 @@ class Block_DFG:
         vleNode.pointer_node = res_ptr_info[0]
         vleNode.load_node = load_ptr_info[0]
         vleNode.load_val = load_val
-        
+
         if res_ptr_info[1] != None:
             (vleNode.ptr_stride, vleNode.ptr_stride_depth) = res_ptr_info[1].Get_Full_Stride()
             vleNode.init_ptr_off = res_ptr_info[1].Get_Initial_Val()
         else:
             vleNode.init_ptr_off = res_ptr_info[2]
-        
+
         if load_ptr_info[1] != None:
             (vleNode.load_stride, vleNode.load_stride_depth) = load_ptr_info[1].Get_Full_Stride()
             vleNode.init_load_off = load_ptr_info[1].Get_Initial_Val()
         else:
             vleNode.init_load_off = load_ptr_info[2]
-        
+
         vleNode.length = load_len
 
         if(vleNode.load_node == None):
@@ -510,8 +508,8 @@ class Block_DFG:
 
     def Identify_Load_Loop_OLD_WONT_WORK(self, dfg):
         """
-        Identifies the loops where we are loading data from memory into the 
-        register file.  Basically, this is any loop with memset/memcpy in it, 
+        Identifies the loops where we are loading data from memory into the
+        register file.  Basically, this is any loop with memset/memcpy in it,
         which doesn't output to stream_out. This
         Should make doing the vsetivli and the vle32.v simpler.
         """
@@ -555,7 +553,7 @@ class Block_DFG:
                 if(load_offset[0] in ["%", "@"]):
                     load_offset_node = dfg.Get_Node_By_Name(load_offset)
                 load_node = dfg.Get_Pointer_Node(load_node)
-        
+
         pointer_node = dfg.Get_Pointer_Node(res_node)
         pointer_offset = 0
         pointer_offset_node:dfgn.DFG_Node = None
@@ -564,7 +562,7 @@ class Block_DFG:
             if(pointer_offset[0] in ["%", "@"]):
                 pointer_offset_node = dfg.Get_Node_By_Name(pointer_offset)
             pointer_node = dfg.Get_Pointer_Node(pointer_node)
-        
+
         vleNode.length = load_len
         vleNode.pointer_node = pointer_node
         vleNode.load_node = load_node
@@ -592,7 +590,7 @@ class Block_DFG:
 
     def UnLinkNode(self, removeNode:dfgn.DFG_Node, dfg):
         """
-        When removing a node, we want to remove all nodes that 
+        When removing a node, we want to remove all nodes that
         only contribute to the node were doing.
         Ie if len(removeNode.dep.uses) == 1, then its only used for our node,
         so we delete it.  Do this recursively until while the node is only
@@ -605,12 +603,12 @@ class Block_DFG:
             if removeNode not in dep.use_nodes:
                 print("Error, removeNode not in dep.use_nodes")
                 print("\t" + removeNode.name + ", " + dep.name)
-            
+
             depUseNodes = dep.use_nodes.copy()
             for psuedo in dep.psuedo_nodes:
                 if psuedo in depUseNodes:
                     depUseNodes.remove(psuedo)
-            
+
             if(len(depUseNodes) == 1):
                 try:
                     dfg.block_dfgs[dep.block_num].UnLinkNode(dep, dfg)
@@ -655,7 +653,7 @@ class Block_DFG:
         nodeList.extend(self.outer_vars.copy())
         removedNode = False
         for node in nodeList:
-            # any node with no instruction was explicitly 
+            # any node with no instruction was explicitly
             # created, so likely don't want to delete it
             if removePhiBranch == True:
                 if node.is_macc or node.is_vle:
@@ -674,7 +672,7 @@ class Block_DFG:
                 for use in node.use_nodes:
                     if use.is_phi:
                         nodeUses.remove(use)
-            
+
             if len(nodeUses) == 0:
                 for dep in node.dep_nodes.copy():
                     if node in dep.use_nodes:
@@ -719,7 +717,7 @@ class Block_DFG:
                     print("\t\tRemoving created node ? ")
                     self.createdNodes.remove(node)
         return removedNode
-    
+
     def Get_Stride(self, dfg):
         """
         Gets the loop->loop change of the value assigned by phi
@@ -749,7 +747,7 @@ class Block_DFG:
                 if totalStride == 0:
                     totalStride = 1
                 totalStride *= (2 ** (int(node.immediates[0])))
-        
+
         self.stride = totalStride
         phiNode.stride.append(totalStride)
         return
@@ -784,7 +782,7 @@ class Block_DFG:
     def Convert_Br_To_Bne(self, dfg):
         """
         Converts the br instruction to a bne instruction.
-        This will get rid of the br and icmp instruction, 
+        This will get rid of the br and icmp instruction,
         and replace it with a bne.
         """
         self.Fill_Block_Node_Info() #convenient spot to do this... may move later
@@ -846,7 +844,7 @@ class Block_DFG:
 
     def Remove_Branch(self, dfg):
         """
-        removes the branch instruction in this block, and the conditional 
+        removes the branch instruction in this block, and the conditional
         that it is depenedent on.  Doesn't remove the bne, just the
         original branch
         """
@@ -871,7 +869,7 @@ class Block_DFG:
     def Remove_Duplicate_NodeLists(self):
         """
         The code has some issues where the same thing
-        can get inserted into each nodelist multiple 
+        can get inserted into each nodelist multiple
         times.  Ensures each nodelist only contains
         one of each node, and that no nodelist contains
         itself
