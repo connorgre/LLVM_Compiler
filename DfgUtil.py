@@ -44,3 +44,16 @@ def Do_Op(op:str, val1:int, val2:int, *, warnForZero=True):
         warnings.warn("unsupported arithmatic op")
     return retVal
 
+def Sort_List_Index(list, indexList, *, dontVerifyList=False):
+    for i in range(len(list)):
+        for j in range(len(list)):
+            # this line makes sure that there are no collisions, which would mean
+            # the specific computation could have been done out of the loop
+            assert((indexList[i] != indexList[j]) or dontVerifyList)
+            if indexList[i] > indexList[j]:
+                temp = list[i]
+                tempIdx = indexList[i]
+                list[i] = list[j]
+                indexList[i] = indexList[j]
+                list[j] = temp
+                indexList[j] = tempIdx

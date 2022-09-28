@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 import DFG_Node2 as dfgn
 import warnings
+import DfgUtil as util
 
 if TYPE_CHECKING:
     import DFG2 as _dfg
@@ -61,7 +62,8 @@ class Phi_Node(dfgn.DFG_Node):
         return
 
     def Get_Phi_Stride(self):
-        assert(self.loopStride != None)
+        if self.loopStride == None:
+            self.Get_Loop_Change()
         return self.loopStride
 
     def Get_Phi_Branches(self):
@@ -116,6 +118,37 @@ class Phi_Node(dfgn.DFG_Node):
                 ret_names.append(self.valDict[phiBlock.predecessor])
         assert(len(ret_names) != 1)
         return dfg.Get_Node_By_Name(ret_names[0])
+
+    def Get_Loop_Change(self):
+        """
+        phiNode gets its stride info handled specially
+        """
+        # normal loop iter logic
+        # Get path from phi to the node we do the compare with
+        nodePath = self.Search_For_Node(self, needTwoOfNode=True)
+        assert(nodePath[0] == self and nodePath[-1] == self and len(nodePath) > 2)
+        currVal = self.Get_Init_Val()
+        prevNode = self
+        for node in nodePath[1:-1]:
+            assert(node.Is_Arithmatic())
+            # phi loop stride MUST be constant for this compiler
+            assert(len(node.immediates) == 1)
+            if node.instruction.args.op1 != prevNode.name:
+                warnings.warn("I assume the immediate val is always op2 for now, \
+                                need to implement extra logic otherwise")
+                assert(False)
+            currVal = util.Do_Op(node.Get_Instr(), currVal, node.immediates[0])
+            prevNode = node
+
+        if self.loopStride != None:
+            assert(self.loopStride == currVal)
+        if len(self.loopInfo.stride) != 0:
+            assert(len(self.loopInfo.stride) == 1)
+            assert(self.loopInfo.stride[0] == currVal)
+
+        self.loopStride = currVal
+        return currVal
+
 
 class Block_Node(dfgn.DFG_Node):
     """

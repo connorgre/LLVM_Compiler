@@ -81,6 +81,7 @@ class Block_DFG:
         self.Init_Outer_Nodes()
         self.Fill_Vector_Len()
         self.Assign_Self_As_Parent()
+        self.Init_Loop_Entry_Exit()
 
     def Init_Block_2(self):
         """
@@ -334,9 +335,28 @@ class Block_DFG:
         self.isLoopExit = self.block.is_loop_exit
 
     def Is_Loop_Entry(self):
+        assert(self.isLoopEntry != None)
         return self.isLoopEntry
+
     def Is_Loop_Exit(self):
+        assert(self.isLoopExit != None)
         return self.isLoopExit
+
+    def Get_Execution_Order(self):
+        """
+        returns the execution order of the first time this
+        block will be run
+        """
+        # just a lil error checking
+        order = self.block.block_order
+        found = False
+        for idx, block in enumerate(self.dfg.blockDFGs):
+            if block == self:
+                assert(order == idx)
+                assert(found == False)
+                found = True
+        assert(found == True)
+        return order
 
     def Fill_Vector_Len(self):
         """
@@ -357,6 +377,37 @@ class Block_DFG:
             self.vectorLen = 1
         return
 
+    def Get_Exit_Block(self):
+        if self.isLoopExit:
+            warnings.warn("getting exit block of exit block ?")
+            return self
+
+        assert(self.isLoopEntry)
+        # get the block we exit from
+        assert(self.block.exit_idx != -1)
+        exitBlockPf = self.dfg.parsedFile.blocks[self.block.exit_idx]
+        assert(exitBlockPf.is_loop_exit == True)
+        exitBlock = self.dfg.blockDFGs[exitBlockPf.block_order]
+        assert(exitBlock.Get_Execution_Order() == exitBlockPf.block_order)
+        assert(exitBlock.isLoopExit == True)
+        return exitBlock
+
+    def Get_Entry_Block(self):
+        if self.isLoopEntry:
+            warnings.warn("getting entry of entry block")
+            return self
+
+        # get the block that enters our loop
+        assert(self.isLoopEntry)
+        assert(self.block.entry_idx != -1)
+        entryBlockPf = self.dfg.parsedFile.blocks[self.block.entry_idx]
+        assert(entryBlockPf.is_loop_entry == True)
+        entryBlock = self.dfg.blockDFGs[entryBlockPf.block_order]
+        assert(entryBlock.Get_Execution_Order() == entryBlockPf.block_order)
+        assert(entryBlock.isLoopEntry == True)
+
+        return entryBlock
+
     def Fill_Iter_Info(self):
         """
         Gets the iteration info about the loop
@@ -371,19 +422,13 @@ class Block_DFG:
             self.blockNode.loopEntry = False
             return
 
-        # get the block we exit from
-        assert(self.block.exit_idx != -1)
-        exitBlockPf = self.dfg.parsedFile.blocks[self.block.exit_idx]
-        assert(exitBlockPf.is_loop_exit == True)
-        exitBlock = self.dfg.blockDFGs[exitBlockPf.block_order]
-        assert(exitBlock.blockNum == exitBlockPf.block_order)
+        exitBlock = self.Get_Exit_Block()
 
         # exit of end of loop and entry to loop
         blockExitNode = exitBlock.brNode
         assert(self.phiNode == self.innerNodes[0])
-        assert(self.phiNode.Get_Instr() == "phi")
         assert(blockExitNode.Get_Instr() == "br")
-        assert(self.phiNode.Get_Type() == "phi")
+        assert(self.phiNode.Is_Phi())
 
         # Get initial value of the phi variable
         prevBranch:dfgn.DFG_Node = None
@@ -404,42 +449,20 @@ class Block_DFG:
         if self.phiInitVal != 0:
             warnings.warn("Loop init val != 0")
 
-        compareVar:dfgn.DFG_Node  = None
-        compareImm:int            = None
+        compareImm  : int           = None
+        compareNode : dfgn.DFG_Node = None
         for node in blockExitNode.Get_Deps():
-            if node.Get_Instr() == "icmp":
-                assert(node.instruction.args.comparison == "eq")
-                compareVar = node.instruction.args.op1
-                compareImm = node.instruction.args.op2
-        assert(compareVar != None)
-        assert(compareImm != None)
-        assert(compareVar != "DEFAULT")
-        assert(compareImm != "DEFAULT")
+            if  node.Get_Instr() == "icmp"      :
+                    assert(node.instruction.args.comparison == "eq")
+                    assert(compareNode == None)
+                    compareNode = node
+                    assert(len(node.Get_Deps()) == 1)
+                    assert(len(node.immediates) == 1)
+                    compareImm = node.immediates[0]
 
-        self.loopLimit   = int(compareImm)
-        compareNode = self.dfg.Get_Node_By_Name(compareVar)
+        self.loopLimit   = compareImm
 
-
-        # normal loop iter logic
-        # Get path from phi to the node we do the compare with
-        nodePath:"list[dfgn.DFG_Node]" = self.phiNode.Search_For_Node(compareNode)
-        currVal = 0
-        for node in nodePath[1:]:
-            if node.Get_Instr() != "add":
-                warnStr = "currently only support adding for loop iters\n"
-                warnStr += "\tinstr: " + node.Get_Instr()
-                warnings.warn(warnStr)
-                assert(False)
-            if len(node.immediates) == 0:
-                warnings.warn("only support immediate loop increments")
-                assert(False)
-            currVal = util.Do_Immediate_Op(currVal, node)
-        self.phiStride = currVal
-        if self.phiStride == 0:
-            # see below comment, clang compiles the ir for this section in an odd way
-            assert(self.block.name == "vector.body")
-            self.phiStride = 1
-
+        self.phiStride = self.phiNode.Get_Loop_Change()
 
         assert(self.vectorLen != -1)
         self.selfIters = int(((self.loopLimit - self.phiInitVal)//self.phiStride) // self.vectorLen)
@@ -554,7 +577,6 @@ class Block_DFG:
 
         warnings.warn("not done")
         assert(False)
-
 
 
 

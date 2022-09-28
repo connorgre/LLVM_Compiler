@@ -1,3 +1,4 @@
+from operator import ne
 import Parser as p
 from typing import TYPE_CHECKING
 import warnings
@@ -69,7 +70,7 @@ class Loop_Info:
     stride        : "list[int]"     # stride of the pointer through each loop
     strideIters   : "list[int]"     # number of iters on this stride before moving up
     strideDepth   : "list[int] "    # depth of the stride/offsets
-    node          : "DFG_Node"
+    initVal       : "int"
     def __init__(self):
         self.stride         = []
         self.strideIters    = []
@@ -416,7 +417,9 @@ class DFG_Node:
                         storeSearch=False,                  # only look for search nodes
                         pointerSearch=False,                # only look for pointer nodes
                         withinBlock=False,                  # don't search outside block
-                        stayAboveDepth=-1                   # don't search shallower loops
+                        stayAboveDepth=-1,                  # don't search shallower loops
+                        excludeNodes:"list[DFG_Node]"=[],   # list of nodes ot exclude (useful for phiSearch)
+                        needTwoOfNode=False                 # so that we can search for ourself (if we're phi)
                         ):
         """
         Returns a list of nodes in the path from self to searchNode
@@ -434,11 +437,17 @@ class DFG_Node:
         doSearch = True
         if self in visited:
             doSearch = False
+
         if self == searchNode:
-            assert(self not in visited)
-            assert(self not in nodeList)
-            doSearch = False
-            nodeList.append(self)
+            if needTwoOfNode:
+                if self in nodeList:
+                    doSearch = False
+                    nodeList.append(self)
+            else:
+                assert(self not in visited)
+                assert(self not in nodeList)
+                doSearch = False
+                nodeList.append(self)
 
         if phiSearch:
             assert(searchNode == None)
@@ -467,6 +476,8 @@ class DFG_Node:
 
         if searchNode in nodeList:
             doSearch = False
+            if needTwoOfNode and nodeList.count(searchNode) < 2:
+                doSearch = True
 
         if doSearch:
             searchList:"list[DFG_Node]"
@@ -489,6 +500,10 @@ class DFG_Node:
                     if node.Get_Loop_Depth() < stayAboveDepth:
                         searchList.remove(node)
 
+            for node in excludeNodes:
+                if node in searchList:
+                    searchList.remove(node)
+
             doPop = True
             for node in searchList:
                 node.Search_For_Node(searchNode,
@@ -499,12 +514,17 @@ class DFG_Node:
                                      storeSearch=storeSearch,
                                      pointerSearch=pointerSearch,
                                      withinBlock=withinBlock,
-                                     stayAboveDepth=stayAboveDepth)
+                                     stayAboveDepth=stayAboveDepth,
+                                     excludeNodes=excludeNodes,
+                                     needTwoOfNode=needTwoOfNode
+                                     )
 
                 # conditions where we've found what we want
                 if searchNode in nodeList:
                     # don't wanna pop if we just found it
                     doPop = False
+                    if needTwoOfNode and nodeList.count(searchNode) < 2:
+                        doPop = True
                 if phiSearch:
                     # if the final node in the list is phi
                     if nodeList[-1].Get_Type() == "phi":
@@ -557,6 +577,7 @@ class DFG_Node:
         pointerNode:DFG_Node = self.Get_Root_Pointer()
         path = pointerNode.Search_For_Node(self)
         assert(path[-1] == self and path[0] == pointerNode)
+        assert(self.Get_Pointer() in path)
         return path
 
     def Get_Link_By_Name(self, name:str):
@@ -623,24 +644,148 @@ class DFG_Node:
         warnings.warn("not finished")
         assert(False)
 
-    def Get_Loop_Change(self, minDepth=None):
+    def Get_LoopInfo_Stride_And_Depth(self):
+        """
+        returns (stride, strideDepth) tuple
+        Gets/Fills out the stride and strideDepth lists for the loopInfo member
+        This function makes the assumption that the IR will do operation as far out
+        of the loop as possible.  While it isn't a requirement in llvm, the clang compiler
+        should almost definitely do that.  This will fail on multiple asserts if that is
+        not the case...
+        """
+        innerChange = self.Get_Loop_Change()
+        innerDepth  = self.Get_Loop_Depth()
+
+        if self.Is_Phi():
+            self.loopInfo.stride.append(innerChange)
+            self.loopInfo.strideDepth.append(innerDepth)
+            assert(len(self.loopInfo.stride) == 1)
+            assert(len(self.loopInfo.strideDepth) == 1)
+
+        elif len(self.loopInfo.stride) > 0:
+            assert(len(self.loopInfo.stride) == len(self.loopInfo.strideDepth))
+
+        elif len(self.immediates == 1):
+            # assume assignment would be out of loop
+            assert(len(self.Get_Uses()) == 1)
+            assert(self.Get_Uses()[0].Is_Node_In_Same_Loop(self))
+
+            self.loopInfo.stride.append(innerChange)
+            self.loopInfo.strideDepth.append(innerDepth)
+            assert(len(self.loopInfo.stride) == 1)
+            assert(len(self.loopInfo.strideDepth) == 1)
+
+        else:
+            deps = self.Get_Deps()
+            assert(len(deps) == 2)
+            # requirement for constant loop changes at each level
+            assert(self.Get_Instr() == "add")
+
+            strideList1:"list[int]" = None
+            strideList2:"list[int]" = None
+            depthList1 :"list[int]" = None
+            depthList2 :"list[int]" = None
+
+            (strideList1, depthList1) = deps[0].Get_LoopInfo_Stride_And_Depth()
+            (strideList2, depthList2) = deps[1].Get_LoopInfo_Stride_And_Depth()
+
+            strideList1.extend(strideList2)
+            depthList1.extend(depthList2)
+
+            util.Sort_List_Index(strideList1, depthList1)
+
+            self.loopInfo.stride      = strideList1
+            self.loopInfo.strideDepth = depthList1
+
+        return (self.loopInfo.stride.copy(), self.loopInfo.strideDepth.copy())
+
+
+
+
+    def Get_Loop_Change(self):
         """
         returns the amound that this node changes per loop it's assigned in
         """
+        # phi nodes implement this on their own
+        assert(self.Is_Phi() == False)
+        # This should only be needed on arithmatic instructions
+        assert(self.Is_Arithmatic())
+
+        vals:"list[int]" = []
+        for node in self.Get_Deps():
+            if self.Is_Node_In_Same_Loop(node):
+                vals.append(node.Get_Loop_Change())
+            else:
+                assert(self.Get_Instr() == "add")
+                vals.append(0)
+        if len(vals) == 0:
+            warnings.warn("no valid op found...")
+        for imm in self.immediates:
+            if self.instruction.args.op1[0] not in ["%", "@"] and self.Get_Instr() == "shl":
+                warnings.warn("need to add logic for immediate as op1")
+                assert(False)
+            if self.Get_Instr() == "add":
+                # adding an immediate doesn't change the stride
+                vals.append(0)
+            else:
+                vals.append(imm)
+        assert(len(vals) == 2)
+
+        return util.Do_Op(self.Get_Instr(), vals[0], vals[1])
+
+    def Is_Node_In_Same_Loop(self, node:"DFG_Node"):
+        """
+        returns true if the two nodes are in the same loop
+        """
+        selfBlockOrder = self.Get_Block_Order()
+        nodeBlockOrder = node.Get_Block_Order()
+        isSameLoop = False
+        if selfBlockOrder != nodeBlockOrder:
+            if self.parentBlock.Is_Loop_Entry():
+                exitBlock = self.parentBlock.Get_Exit_Block()
+                if exitBlock == node.parentBlock:
+                    isSameLoop = True
+            elif self.parentBlock.Is_Loop_Exit():
+                entryBlock = self.parentBlock.Get_Entry_Block()
+                if entryBlock == node.parentBlock:
+                    isSameLoop = True
+        else:
+            isSameLoop = True
+        return isSameLoop
+
+    def Find_Phi(self):
+        """
+        Finds the phi node that most recently assigns to this one
+        Searches from the node for every phi node, and returns
+        the one that is closest to this one --
+          the one closet to this one thats before in execution order
+        """
+        phiList:"list[DFG_Node]" = []
+        while True:
+            nodeList = self.Search_For_Node(None,
+                                            True,
+                                            phiSearch=True,
+                                            excludeNodes=phiList)
+            if len(nodeList) == 0:
+                break
+            else:
+                assert(nodeList[-1].Is_Phi())
+                phiList.append(nodeList[-1])
+        assert(len(phiList) > 0)
+        earlyNode:"sdfgn.Phi_Node" = phiList[0]
+        if len(phiList) > 1:
+            for node in phiList[1:]:
+                earlyIdx = earlyNode.Get_Block_Order()
+                nodeIdx = node.Get_Block_Order()
+                assert(earlyIdx != nodeIdx)
+                # higher number means executed more recently
+                if nodeIdx > earlyIdx:
+                    earlyNode = node
+        return earlyNode
+
+    def Get_Block_Order(self):
         assert(self.parentBlock != None)
-        if minDepth == None:
-            minDepth = self.Get_Loop_Depth()
-        if self.Get_Loop_Depth() < minDepth:
-            return 0
-        if len(self.loopInfo.stride) > 0:
-            return self.loopInfo.stride[0]
-        if self.Is_Phi():
-            return self.Get_Phi_Stride()
-
-        # not done yet. need to recursively call this function
-
-        warnings.warn("not finished")
-        assert(False)
+        return self.parentBlock.Get_Execution_Order()
 
     def Get_Loop_Depth(self):
         retVal = None
