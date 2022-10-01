@@ -38,10 +38,17 @@ class DFG:
             self.Init_DFG()
 
     def Init_DFG(self):
+        self.Init_Block_DFG_List()
         self.Get_All_Variables()
         self.Link_Nodes()
         self.Create_Block_DFGs()
         return
+
+    def Init_Block_DFG_List(self):
+        for b_idx in range(len(self.parsedFile.blocks)):
+            block = self.parsedFile.Get_Order_Idx(b_idx)
+            block_dfg = b_dfg.Block_DFG(self, block)
+            self.blockDFGs.append(block_dfg)
 
     def Get_All_Variables(self):
         """
@@ -52,6 +59,7 @@ class DFG:
         for bIdx in range(len(self.parsedFile.blocks)):
             block = self.parsedFile.Get_Order_Idx(bIdx)
             ordIdx = block.block_order
+            blockDfg = self.blockDFGs[ordIdx]
             for instr in block.instructions:
                 if instr.args == None:
                     continue
@@ -60,10 +68,10 @@ class DFG:
                     if self.Get_Node_By_Name(instr.args.result) == None:
                         node = None
                         if (instr.args.instr == "phi"):
-                            node = sdfgn.Phi_Node(instr)
+                            node = sdfgn.Phi_Node(blockDfg, instr)
                             self.phiNodes.append(node)
                         else:
-                            node = dfgn.DFG_Node(instr)
+                            node = dfgn.DFG_Node(blockDfg, instr)
                         assert(instr.block_offset != -1)
                         node.assignment = (ordIdx, instr.block_offset)
                         self.nodes.append(node)
@@ -83,13 +91,13 @@ class DFG:
                         if (self.Get_Node_By_Name(nodeName) != None):
                             warnings.warn("Error, node already has this name\
                                             MUST MODIFY CODE")
-                        newNode = dfgn.DFG_Node(instr)
+                        newNode = dfgn.DFG_Node(blockDfg, instr)
                         newNode.name = nodeName
                         newNode.assignment = (ordIdx, instr.block_offset)
                         self.nodes.append(newNode)
                         print(newNode.name)
                 elif (instr.args.instr == "br"):
-                    node = dfgn.DFG_Node(instr)
+                    node = dfgn.DFG_Node(blockDfg, instr)
                     node.name = "%" + block.name
                     node.assignment = (ordIdx, instr.block_offset)
                     self.branchNodes.append(node)
@@ -117,7 +125,7 @@ class DFG:
                 continue
             if(instr.args.result[0] == '@'):
                 assert(self.Get_Node_By_Name(instr.args.result) == None)
-                node = dfgn.DFG_Node(instr)
+                node = dfgn.DFG_Node(None, instr)
                 node.assignment = (-1, instr.instr_num) # -1 to indicate that it is a global variable
                 self.nodes.append(node)
                 self.globalNodes.append(node)
@@ -171,11 +179,8 @@ class DFG:
         """
         creates smaller dfgs of basic blocks (ie no looping)
         """
-        for b_idx in range(len(self.parsedFile.blocks)):
-            block = self.parsedFile.Get_Order_Idx(b_idx)
-            block_dfg = b_dfg.Block_DFG(self, block)
-            block_dfg.Init_Block_1()
-            self.blockDFGs.append(block_dfg)
+        for block in self.blockDFGs:
+            block.Init_Block_1()
 
         for block in self.blockDFGs:
             block.Init_Block_2()

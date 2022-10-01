@@ -76,6 +76,19 @@ class Loop_Info:
         self.strideIters    = []
         self.strideDepth    = []
         self.initVal        = None
+    def getCopy(self):
+        retInfo = Loop_Info()
+        retInfo.stride      = self.stride.copy()
+        retInfo.strideIters = self.strideIters.copy()
+        retInfo.strideDepth = self.strideDepth.copy()
+        retInfo.initVal     = self.initVal
+        return retInfo
+    def Print(self):
+        print("\tstride:      " + str(self.stride))
+        print("\tstrideIters: " + str(self.strideIters))
+        print("\tstrideDepth  " + str(self.strideDepth))
+        print("\tinitVal:     " + str(self.initVal))
+
 
     def Get_InnerMost_Loop_Change(self):
         return self.stride[0]
@@ -99,7 +112,7 @@ class DFG_Node:
     loopInfo      : Loop_Info
     parentBlock   : "bdfg.Block_DFG"
 
-    def __init__(self, instruction:p.Instruction=None):
+    def __init__(self, block:"bdfg.Block_DFG", instruction:p.Instruction=None):
         self.nodeType = DFG_Type()
         if (instruction != None):
             self.instruction = instruction
@@ -112,7 +125,7 @@ class DFG_Node:
             self.instruction    = None
             self.name           = "DEFAULT"
 
-        self.parentBlock    = None
+        self.parentBlock    = block
         self.assignment     = (-1, -1)
         self.useNodes       = []
         self.depNodes       = []
@@ -290,10 +303,14 @@ class DFG_Node:
         assert(len(self.psuNodes) == 0)
         return
 
-    def Delete_Node(self, relink=True):
+    def Delete_Node(self, relink=True, *, warn=True):
         """
         No matter what, removes all references to uses and from deps, if the
         relink arg is true, this will link every dep to every use
+
+        This also calls dfg.Remove_Node(), which removes the node from the
+        dfg and all blocks.  This function totally erases a node other than psu
+        connections.
 
         Doesn't relink psuedo nodes, expected to call Remove_Psu_Connections
         before this.  Force correct behavior.
@@ -308,6 +325,8 @@ class DFG_Node:
         assert(len(self.depNodes) == 0)
         assert(len(self.useNodes) == 0)
 
+        self.Get_DFG().Remove_Node(self)
+
         if relink:
             for dep in deps:
                 for use in uses:
@@ -316,7 +335,7 @@ class DFG_Node:
                         assert(dep in use.depNodes)
                     else:
                         dep.Add_Use(use)
-        else:
+        elif warn:
             warnings.warn("not relinking deps and uses ? Maybe this is ok idk")
         return
 
@@ -383,16 +402,12 @@ class DFG_Node:
 
         isConnected = False
         if node in selfDeps and checkDep:
-            assert(node not in selfUses)
             assert(selfDeps.count(node) == 1)
-            assert(self not in nodeDeps)
             assert(nodeUses.count(self) == 1)
             isConnected = True
 
         elif node in selfUses and checkUse:
-            assert(node not in selfDeps)
             assert(selfUses.count(node) == 1)
-            assert(self not in nodeUses)
             assert(nodeDeps.count(self) == 1)
             isConnected = True
 
@@ -466,9 +481,10 @@ class DFG_Node:
         if pointerSearch:
             assert(searchNode == None)
             # have extra and here so we can start search from a
-            # getelementptr node
+            # getelementptr node, also zeroinitializer is global pointer
             if (self.Get_Instr() == "alloca") or \
-                    ((self.Get_Instr() == "getelementptr") and (len(nodeList) > 0)):
+                    ((self.Get_Instr() == "getelementptr") and (len(nodeList) > 0)) or\
+                    (self.Get_Instr() == "zeroinitializer"):
                 assert(self not in visited)
                 assert(self not in nodeList)
                 doSearch = False
@@ -534,7 +550,7 @@ class DFG_Node:
                     if nodeList[-1].Get_Instr() == "store":
                         doPop = False
                 if pointerSearch:
-                    if nodeList[-1].Get_Instr() in ["alloca", "getelementptr"]:
+                    if nodeList[-1].Get_Instr() in ["alloca", "getelementptr", "zeroinitializer"]:
                         doPop = False
                 if doPop == False:
                     break
@@ -546,7 +562,10 @@ class DFG_Node:
         return nodeList
 
     def Get_Instr(self):
-        return self.instruction.args.instr
+        retStr = ""
+        if self.instruction != None:
+            retStr = self.instruction.args.instr
+        return retStr
 
     def Get_Pointer(self):
         """
@@ -559,7 +578,6 @@ class DFG_Node:
         """
         Gets the root pointer (ie if it stops on getelementptr, it continues)
         """
-        warnings.warn("untested...")
         ptrNode = None
         nextPtr = self.Get_Pointer()
         while ptrNode != nextPtr:
@@ -634,15 +652,50 @@ class DFG_Node:
             retVal = util.Do_Op(self.Get_Instr(), vals[0], vals[1], warnForZero=False)
         return retVal
 
+    def Get_Loop_Info(self):
+        """
+        returns (deep) copy of loopinfo
+        """
+        self.Fill_Loop_Info()
+        loopInfoCopy = self.loopInfo.getCopy()
+        return loopInfoCopy
+
     def Fill_Loop_Info(self):
         """
         Fills out the loop info member
         """
-        loopInfo = self.loopInfo
-        loopInfo.initVal = self.Get_Init_Val()
+        self.loopInfo.initVal = self.Get_Init_Val()
+        self.Get_LoopInfo_Stride_And_Depth()
+        self.Get_Loop_Iters()
+        assert(self.loopInfo.initVal != None)
+        assert(len(self.loopInfo.stride)      > 0)
+        assert(len(self.loopInfo.strideIters) > 0)
+        assert(len(self.loopInfo.strideDepth) > 0)
+        return
 
-        warnings.warn("not finished")
-        assert(False)
+    def Get_Loop_Iters(self):
+        """
+        Gets/Fills out the self.loopInfo.loopIters member, it is
+        the total number of iterations we do of each stride at each
+        depth
+        """
+        # we need to make sure we have this information
+        (strideList, depthList) = self.Get_LoopInfo_Stride_And_Depth()
+        assert(len(strideList) == len(depthList))
+
+        strideIters:"list[int]" = []
+
+        curBlock = self.parentBlock
+        for depth in depthList:
+            while curBlock.Get_Loop_Depth() != depth:
+                curBlock = curBlock.Get_Block_Entry_Loop_Up()
+            strideIters.append(curBlock.Get_Loop_Iters())
+        if len(self.loopInfo.strideIters) > 0:
+            assert(self.loopInfo.strideIters == strideIters)
+        else:
+            self.loopInfo.strideIters = strideIters
+
+        return self.loopInfo.strideIters.copy()
 
     def Get_LoopInfo_Stride_And_Depth(self):
         """
@@ -656,19 +709,22 @@ class DFG_Node:
         innerChange = self.Get_Loop_Change()
         innerDepth  = self.Get_Loop_Depth()
 
-        if self.Is_Phi():
+        if len(self.loopInfo.stride) > 0:
+            assert(len(self.loopInfo.stride) == len(self.loopInfo.strideDepth))
+            if self.Is_Phi():
+                assert(len(self.loopInfo.stride) == 1)
+                assert(len(self.loopInfo.strideDepth) == 1)
+
+        elif self.Is_Phi():
             self.loopInfo.stride.append(innerChange)
             self.loopInfo.strideDepth.append(innerDepth)
             assert(len(self.loopInfo.stride) == 1)
             assert(len(self.loopInfo.strideDepth) == 1)
 
-        elif len(self.loopInfo.stride) > 0:
-            assert(len(self.loopInfo.stride) == len(self.loopInfo.strideDepth))
-
-        elif len(self.immediates == 1):
+        elif len(self.immediates) == 1:
             # assume assignment would be out of loop
-            assert(len(self.Get_Uses()) == 1)
-            assert(self.Get_Uses()[0].Is_Node_In_Same_Loop(self))
+            assert(len(self.Get_Deps()) == 1)
+            assert(self.Get_Deps()[0].Is_Node_In_Same_Loop(self))
 
             self.loopInfo.stride.append(innerChange)
             self.loopInfo.strideDepth.append(innerDepth)
@@ -698,9 +754,6 @@ class DFG_Node:
             self.loopInfo.strideDepth = depthList1
 
         return (self.loopInfo.stride.copy(), self.loopInfo.strideDepth.copy())
-
-
-
 
     def Get_Loop_Change(self):
         """
@@ -797,9 +850,24 @@ class DFG_Node:
             retVal = -1
         return retVal
 
+    def Get_Block(self):
+        return self.parentBlock
 
+    def Recursive_Delete(self):
+        """
+        Delete node, then recursively deletes it's dependency nodes
+        if this node is the only node that uses that node
+        """
+        deps = self.Get_Deps()
+        uses = self.Get_Uses()
+        assert(len(uses) == 0)
+        self.Remove_Psu_Connections()
+        self.Delete_Node()
 
+        for dep in deps:
+            if len(dep.Get_Uses()) == 0:
+                dep.Recursive_Delete()
+        return
 
-
-
-
+    def Get_DFG(self):
+        return self.Get_Block().Get_DFG()

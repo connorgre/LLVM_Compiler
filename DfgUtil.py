@@ -47,6 +47,8 @@ def Do_Op(op:str, val1:int, val2:int, *, warnForZero=True):
 def Sort_List_Index(list, indexList, *, dontVerifyList=False):
     for i in range(len(list)):
         for j in range(len(list)):
+            if i == j:
+                continue
             # this line makes sure that there are no collisions, which would mean
             # the specific computation could have been done out of the loop
             assert((indexList[i] != indexList[j]) or dontVerifyList)

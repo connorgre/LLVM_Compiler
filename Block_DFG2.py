@@ -25,6 +25,7 @@ class Block_DFG:
 
     selfIters       :int
     vectorLen       :int
+    loopLimit       :int
 
     phiInitVal      :int
     phiStride       :int
@@ -42,6 +43,8 @@ class Block_DFG:
     isLoopEntry     :bool
     isLoopExit      :bool
 
+    brRemoved       :bool
+
     def __init__(self, dfg:"_dfg.DFG", block:ib.Instruction_Block):
         self.block        = block
         self.blockNum     = block.block_order          #block number this dfg corresponds to
@@ -53,15 +56,16 @@ class Block_DFG:
         self.vectorLen    = -1
         self.phiInitVal   = -1
         self.phiStride    = -1
+        self.loopLimit    = -1
         self.phiNode      = None
         self.brNode       = None
         self.createdNodes = []
         self.isLoopEntry  = None
         self.isLoopExit   = None
 
-        self.blockNode      = sdfgn.Block_Node()
+        self.blockNode      = sdfgn.Block_Node(self)
         self.blockNode.name = "$block_" + self.block.name
-        self.bneNode        = sdfgn.Bne_Node()
+        self.bneNode        = sdfgn.Bne_Node(self)
         self.bneNode.name   = "$bne_" + self.block.name
 
         # link these together
@@ -71,6 +75,7 @@ class Block_DFG:
         self.createdNodes.append(self.blockNode)
 
         self.brToBneDone = False
+        self.brRemoved = False
 
     def Init_Block_1(self):
         """
@@ -80,7 +85,7 @@ class Block_DFG:
         self.Init_Inner_Nodes()
         self.Init_Outer_Nodes()
         self.Fill_Vector_Len()
-        self.Assign_Self_As_Parent()
+        self.Verify_Self_As_Parent()
         self.Init_Loop_Entry_Exit()
 
     def Init_Block_2(self):
@@ -88,8 +93,8 @@ class Block_DFG:
         These rely on other blocks being created and initialized
         with Init_Block_1()
         """
-        self.Transfer_Br_Info_To_Bne()
         self.Fill_Iter_Info()
+        self.Transfer_Br_Info_To_Bne()
 
     def Init_Block_3(self):
         """
@@ -124,24 +129,22 @@ class Block_DFG:
                 if dep.assignment[0] != self.blockNum:
                     self.outerNodes.append(dep)
 
-    def Assign_Self_As_Parent(self):
+    def Verify_Self_As_Parent(self):
         """
-        realized later that this would be useful to do, easier to refactor like this instead
-        of hunting every instance down...
+        parentBlock was added late.  Don't wanna miss anything.
         """
-        warnings.warn("should move parent block assignment")
         for node in self.innerNodes:
-            assert(node.parentBlock == None)
-            node.parentBlock = self
+            assert(node.parentBlock == self)
         for node in self.createdNodes:
-            assert(node.parentBlock == None)
-            node.parentBlock = self
+            assert(node.parentBlock == self)
 
     def Find_End_Nodes(self):
         """
         Gets nodes that are at end of dep chain so that we can link them to the
         exit node, to ensure dfg completes all instructions before finishing
         """
+        assert(self.brRemoved == False)
+        assert(self.brToBneDone == False)
         for node in self.innerNodes:
             if node == self.brNode:
                 continue
@@ -379,7 +382,6 @@ class Block_DFG:
 
     def Get_Exit_Block(self):
         if self.isLoopExit:
-            warnings.warn("getting exit block of exit block ?")
             return self
 
         assert(self.isLoopEntry)
@@ -394,11 +396,10 @@ class Block_DFG:
 
     def Get_Entry_Block(self):
         if self.isLoopEntry:
-            warnings.warn("getting entry of entry block")
             return self
 
         # get the block that enters our loop
-        assert(self.isLoopEntry)
+        assert(self.isLoopExit)
         assert(self.block.entry_idx != -1)
         entryBlockPf = self.dfg.parsedFile.blocks[self.block.entry_idx]
         assert(entryBlockPf.is_loop_entry == True)
@@ -417,37 +418,34 @@ class Block_DFG:
             stride for iterNode
         self.Fill_Vector_Len MUST be called before this
         """
-        # only need to get this info if we are at the entry to a loop
+        # only need to get this info if we are at the entry to a loop. If we aren't, the
+        # getter functions will call back to the entry block and get it from there
         if self.block.is_loop_entry == False:
             self.blockNode.loopEntry = False
             return
+        # don't need to re-calc if we already did it
+        if self.selfIters       != -1 and \
+                self.vectorLen  != -1 and \
+                self.phiInitVal != -1 and \
+                self.phiStride  != -1:
+            return
 
+        # init val of phi node for this loop
+        assert((self.phiNode != None) and (self.phiNode.Is_Phi()))
+        phiInitVal = self.phiNode.Get_Init_Val()
+        phiStride = self.phiNode.Get_Loop_Change()
+
+        if self.phiInitVal != -1:
+            assert(self.phiInitVal == phiInitVal)
+        if self.phiStride != -1:
+            assert(self.phiStride == phiStride)
+
+        self.phiInitVal = phiInitVal
+        self.phiStride = phiStride
+
+        # get final final end of loop
         exitBlock = self.Get_Exit_Block()
-
-        # exit of end of loop and entry to loop
-        blockExitNode = exitBlock.brNode
-        assert(self.phiNode == self.innerNodes[0])
-        assert(blockExitNode.Get_Instr() == "br")
-        assert(self.phiNode.Is_Phi())
-
-        # Get initial value of the phi variable
-        prevBranch:dfgn.DFG_Node = None
-        assert(isinstance(self.phiNode, sdfgn.Phi_Node))
-        for node in self.phiNode.Get_Phi_Branches():
-            if node.assignment[0] < self.blockNum:
-                assert(prevBranch == None)
-                prevBranch = node
-        assert(prevBranch != None)
-        assert(prevBranch.Get_Instr() == "br")
-        assert(prevBranch.name == self.phiNode.Get_Phi_Branch_By_Number(0))
-
-        initVal = self.phiNode.Get_Phi_Value_By_Number(0)
-        if initVal.isdigit() == False:
-            assert(False, "initial value assumed to be constant digit")
-        else:
-            self.phiInitVal = int(initVal)
-        if self.phiInitVal != 0:
-            warnings.warn("Loop init val != 0")
+        blockExitNode = exitBlock.Get_Exit_Node()
 
         compareImm  : int           = None
         compareNode : dfgn.DFG_Node = None
@@ -456,38 +454,35 @@ class Block_DFG:
                     assert(node.instruction.args.comparison == "eq")
                     assert(compareNode == None)
                     compareNode = node
-                    assert(len(node.Get_Deps()) == 1)
                     assert(len(node.immediates) == 1)
                     compareImm = node.immediates[0]
 
+        compareDeps = compareNode.Get_Deps()
+        assert(len(compareDeps) == 1)
+        compareToNode = compareDeps[0]
+        compareChange    = compareToNode.Get_Loop_Change()
+        compareInitVal   = compareToNode.Get_Init_Val()
+        if self.loopLimit != -1:
+            assert(self.loopLimit == compareImm)
         self.loopLimit   = compareImm
 
-        self.phiStride = self.phiNode.Get_Loop_Change()
-
         assert(self.vectorLen != -1)
-        self.selfIters = int(((self.loopLimit - self.phiInitVal)//self.phiStride) // self.vectorLen)
 
-        if compareNode == self.phiNode and \
-            self.loopLimit == self.phiInitVal and \
-            blockExitNode.instruction.args.false_target[1:] == self.block.name:
-            #This is the special case where we are only looping once.
-            #for some reason llvm ir doesn't use the .next variable, but rather compares
-            #the initial variable with its initial value.  This makes no sense for clang to do
-            #but whatever.  Does this for vector body in gcn
-            self.selfIters = 1
-            if self.block.name != "vector.body":
-                warnStr = "not necessarily an error,\n"
-                warnStr += "but only expect this for vector.body block(in gcn)"
-                warnings.warn(warnStr)
+        selfIters = int(((self.loopLimit - compareInitVal) // compareChange) // self.vectorLen)
+        assert (((self.loopLimit - compareInitVal) % compareChange) == 0)
+        assert ((((self.loopLimit - compareInitVal) // compareChange) % self.vectorLen) == 0)
 
-        self.phiNode.loopStride = self.phiStride
+        # to get the first loop iteration
+        selfIters += compareChange // self.vectorLen
 
-        self.blockNode.numIters     = self.selfIters
-        self.blockNode.stride       = self.phiStride
-        self.blockNode.vectorLen    = self.vectorLen
-        self.blockNode.initVal      = self.phiInitVal
-        self.blockNode.loopEntry    = True
+        if self.selfIters != -1:
+            assert(self.selfIters == selfIters)
+        self.selfIters = selfIters
+
         return
+
+    def Get_DFG(self):
+        return self.dfg
 
     def Remove_Br(self):
         """
@@ -501,9 +496,25 @@ class Block_DFG:
         # remove the node from all lists
         self.brNode.Remove_Psu_Connections()
         self.brNode.Delete_Node(False)
-        self.dfg.Remove_Node(self.brNode)
+        self.brRemoved = True
 
-        assert(sys.getrefcount(self.brNode) == 2)
+        if sys.getrefcount(self.brNode) != 2:
+            warnings.warn("didn't delete all references")
+
+    def Get_Exit_Node(self):
+        retNode:"dfgn.DFG_Node" = None
+        if self.brNode.Get_Instr() == "ret":
+            warnings.warn("ret not implemented yet")
+            assert(False)
+        if (self.brRemoved == False) and (self.brToBneDone == False):
+            retNode = self.brNode
+        elif (self.brRemoved) and (self.brToBneDone):
+            retNode = self.bneNode
+        else:
+            warnings.warn("ambiguous exit node, giving bneNode")
+            retNode = self.bneNode
+        assert(retNode != None)
+        return retNode
 
     def Get_All_Nodes(self):
         """
@@ -529,10 +540,11 @@ class Block_DFG:
         This identifies the mutliply accumulate function dataflow pattern
         Right now it requires the llvm to compile down to a fmuladd, but
         if the clang compiler that gets used doesn't support that, then I
-        can add in support for a multiply then add instruction
+        can add in support for a multiply then add instruction, its just a lil
+        more work
         """
-        #first, identify if fmuladd is in block
-        fmdNode:dfgn.DFG_Node = None
+        #first, identify if fmuladd is in block, if not, early return
+        fmaNode:dfgn.DFG_Node = None
         foundMacc = False
         for node in self.innerNodes:
             if node.instruction == None:
@@ -558,25 +570,78 @@ class Block_DFG:
         assert(resNode == fmaNode)
 
         resStoreNode:dfgn.DFG_Node = None
-        resPtrNode  :dfgn.DFG_Node = None
         storePath = resNode.Search_For_Node(None, storeSearch=True)
         assert(len(storePath) >= 2)
         if len(storePath) > 2:
             warnings.warn("in gcn, this should only ever be 2 nodes")
         resStoreNode = storePath[-1]
-        resStorePtr_temp = resStoreNode.Get_Link_By_Name(resStoreNode.instruction.args.pointer)
-        resPtrNode = resStorePtr_temp.Get_Root_Pointer()
+        resStorePtr = resStoreNode.Get_Link_By_Name(resStoreNode.instruction.args.pointer)
 
-        maccNode:sdfgn.Macc_Node = sdfgn.Macc_Node()
-        warnings.warn("should move parent block assignment")
-        maccNode.parentBlock = self
-
+        maccNode:sdfgn.Macc_Node = sdfgn.Macc_Node(self)
         self.createdNodes.append(maccNode)
+
         maccNode.addPtrInfo.Init_Ptr_Info(addNode)
+        maccNode.mul1PtrInfo.Init_Ptr_Info(mul1Node)
+        maccNode.mul2PtrInfo.Init_Ptr_Info(mul2Node)
+        maccNode.resPtrInfo.Init_Ptr_Info(resStorePtr)
+
+        maccNode.name = "$macc_" + maccNode.resPtrInfo.ptrNode.name
+
+        # These need the checks bc my rules say that only one entry per
+        # list, but these can have the same root pointer
+        if maccNode.Check_Connected(maccNode.Get_Res_Ptr(), checkDep=False) == False:
+            maccNode.Add_Use(maccNode.Get_Res_Ptr())
+        if maccNode.Check_Connected(maccNode.Get_Add_Ptr(), checkUse=False) == False:
+            maccNode.Add_Dep(maccNode.Get_Add_Ptr())
+        if maccNode.Check_Connected(maccNode.Get_Mul1_Ptr(), checkUse=False) == False:
+            maccNode.Add_Dep(maccNode.Get_Mul1_Ptr())
+        if maccNode.Check_Connected(maccNode.Get_Mul2_Ptr(), checkUse=False) == False:
+            maccNode.Add_Dep(maccNode.Get_Mul2_Ptr())
+
+        maccNode.Add_Dep(self.blockNode)
+        maccNode.Add_Use(self.bneNode)
 
 
-        warnings.warn("not done")
-        assert(False)
+        # shouldn't be any but safe to do it anyways
+        fmaNode.Remove_Psu_Connections()
+        # we have gotten all info we need from fma node, time to delete,
+        # don't relink bc we are going to delete the hanging nodes from
+        # this anyways
+        fmaNode.Delete_Node(False, warn=False)
 
 
+        addNode.Recursive_Delete()
+        mul1Node.Recursive_Delete()
+        mul2Node.Recursive_Delete()
+        resStoreNode.Recursive_Delete()
 
+        return
+
+    def Get_Block_Entry_Loop_Up(self):
+        """
+        returns the block that is one level up in loop depth that enters into us
+        (not necessarily the block before, but the block that enters
+         this loop)
+        """
+        backBlock:"Block_DFG" = None
+        selfDepth = self.blockNode.Get_Loop_Depth()
+
+        # the block that enters in one loop up will be
+        blockDeps = self.Get_Entry_Block().blockNode.Get_Deps()
+        for node in blockDeps:
+            if node.Get_Loop_Depth() == selfDepth - 1:
+                assert(backBlock == None)
+                backBlock = node.Get_Block()
+                if backBlock == None:
+                    warnings.warn("backBlock is none.  This ~shouldn't~ happen, but it\
+                                    is possible that this is ok to happen if this is\
+                                    a global variable... probably a bug tho")
+                    assert (False)
+        assert(backBlock != None)
+        return backBlock
+
+    def Get_Loop_Iters(self):
+        entryBlock = self.Get_Entry_Block()
+        entryBlock.Fill_Iter_Info()
+
+        return entryBlock.selfIters

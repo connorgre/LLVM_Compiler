@@ -5,28 +5,28 @@ import DfgUtil as util
 
 if TYPE_CHECKING:
     import DFG2 as _dfg
+    import Block_DFG2 as bdfg
 
 class Pointer_Info():
     """
     class to hold information about pointer Nodes
     """
-    loopInfo      : "dfgn.Loop_Info"
-    ptrNode       : "dfgn.DFG_Node" # node for the pointer
-    ptrOffsetNode : "dfgn.DFG_Node" # if the load value is from a pointer
-    ptrInitOffset : "int"           # list of the loop-loop offsets
-
+    offsetInfo : "dfgn.Loop_Info"
+    ptrNode    : "dfgn.DFG_Node" # node for the pointer
+    initInfo   : "bool"
     def __init__(self):
-        self.loopInfo       = dfgn.Loop_Info()
-        self.ptrNode        = None
-        self.ptrInitOffset  = None
-        self.ptrOffsetNode  = None
+        self.offsetInfo = dfgn.Loop_Info()
+        self.ptrNode    = None
+        self.initInfo   = False
         return
 
     def Init_Ptr_Info(self, pointerUse:"dfgn.DFG_Node"):
+        self.initInfo = True
         pointerPath   = pointerUse.Get_Root_Pointer_Path()
         self.ptrNode  = pointerPath[0]
 
-        getElementPtrNode = None
+        getElementPtrNode:"dfgn.DFG_Node" = None
+        ptrOffsetNode    :"dfgn.DFG_Node" = None
         for node in pointerPath:
             if node.Get_Instr() == "getelementptr":
                 assert(getElementPtrNode == None)
@@ -36,11 +36,30 @@ class Pointer_Info():
                 warnings.warn("only expect 2 level getelementptr in gcn")
             offsetStr = getElementPtrNode.instruction.args.index_value[-1]
             if offsetStr[0] in ["%", "@"]:
-                self.ptrOffsetNode = getElementPtrNode.Get_Link_By_Name(offsetStr)
-                self.ptrInitOffset = self.ptrOffsetNode.Get_Init_Val()
+                ptrOffsetNode = getElementPtrNode.Get_Link_By_Name(offsetStr)
+                ptrOffsetNode.Fill_Loop_Info()
+                self.offsetInfo = ptrOffsetNode.loopInfo.getCopy()
             else:
                 assert(offsetStr.isnumeric())
-                self.ptrInitOffset = int(offsetStr)
+                assert(self.offsetInfo.strideIters == [])
+                assert(self.offsetInfo.stride      == [])
+                assert(self.offsetInfo.strideDepth == [])
+                self.offsetInfo.initVal = int(offsetStr)
+
+    def Get_Offset_Stride(self):
+        assert(self.initInfo)
+        return self.offsetInfo.stride.copy()
+    def Get_Offset_StrideIters(self):
+        assert(self.initInfo)
+        return self.offsetInfo.strideIters.copy()
+    def Get_Offset_StrideDepth(self):
+        assert(self.initInfo)
+        return self.offsetInfo.strideDepth.copy()
+    def Get_Offset_InitVal(self):
+        assert(self.initInfo)
+        return self.offsetInfo.initVal
+    def Get_Ptr_Node(self):
+        return self.ptrNode
 
 class Phi_Node(dfgn.DFG_Node):
     """
@@ -49,8 +68,8 @@ class Phi_Node(dfgn.DFG_Node):
     stride      :int
     valDict     :dict
     loopStride  :int
-    def __init__(self, instruction=None):
-        super().__init__(instruction)
+    def __init__(self, block:"bdfg.Block_DFG", instruction=None):
+        super().__init__(block, instruction)
         self.nodeType.special = True
         self.nodeType.phi     = True
 
@@ -88,6 +107,7 @@ class Phi_Node(dfgn.DFG_Node):
         """
         branchName:str = self.instruction.args.block_list[branchNum].predecessor
         return branchName
+
     def Get_Phi_Value_By_Number(self, branchNum):
         """
         Returns the NAME of the value
@@ -149,7 +169,6 @@ class Phi_Node(dfgn.DFG_Node):
         self.loopStride = currVal
         return currVal
 
-
 class Block_Node(dfgn.DFG_Node):
     """
     Node indicating entry to block (bne target).  Ends up taking on the role of
@@ -162,8 +181,8 @@ class Block_Node(dfgn.DFG_Node):
     loopEntry   :bool
 
     iterName:str
-    def __init__(self, instruction=None):
-        super().__init__(instruction)
+    def __init__(self, block:"bdfg.Block_DFG", instruction=None):
+        super().__init__(block, instruction)
         self.nodeType.special = True
         self.nodeType.block   = True
         self.numIters         = None
@@ -195,8 +214,8 @@ class Bne_Node(dfgn.DFG_Node):
     forwardTarget:dfgn.DFG_Node
     alwaysForward:bool
 
-    def __init__(self, instruction=None):
-        super().__init__(instruction)
+    def __init__(self, block:"bdfg.Block_DFG", instruction=None):
+        super().__init__(block, instruction)
         self.nodeType.special = True
         self.nodeType.bne     = True
         self.alwaysForward    = True
@@ -216,8 +235,8 @@ class VLE_Node(dfgn.DFG_Node):
     loadLength  :int
     loadValue   :int
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, block:"bdfg.Block_DFG"):
+        super().__init__(block)
         self.nodeType.special   = True
         self.nodeType.vle       = True
 
@@ -242,8 +261,8 @@ class Macc_Node(dfgn.DFG_Node):
     mul1PtrInfo :Pointer_Info
     mul2PtrInfo :Pointer_Info
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, block:"bdfg.Block_DFG"):
+        super().__init__(block)
         self.nodeType.special   = True
         self.nodeType.macc      = True
 
@@ -252,3 +271,12 @@ class Macc_Node(dfgn.DFG_Node):
         self.mul1PtrInfo = Pointer_Info()
         self.mul2PtrInfo = Pointer_Info()
         return
+
+    def Get_Res_Ptr(self):
+        return self.resPtrInfo.Get_Ptr_Node()
+    def Get_Add_Ptr(self):
+        return self.addPtrInfo.Get_Ptr_Node()
+    def Get_Mul1_Ptr(self):
+        return self.mul1PtrInfo.Get_Ptr_Node()
+    def Get_Mul2_Ptr(self):
+        return self.mul2PtrInfo.Get_Ptr_Node()
