@@ -12,8 +12,22 @@ def main():
     dfg = _dfg.DFG("gcn3_strip.ll")
     util.Print_With_Bars("End of Init (some warnings about implementation details I plan on changing)")
 
-    tests = [Test_Find_Phi, Test_Search_For_Self, Test_Loop_Change, Test_StrideDepth, Test_Iters, Test_Macc]
-    testNames = ["find phi", "search for self", "loop change", "stride and depth", "loop iters", "create macc"]
+    tests = [   Test_Find_Phi,
+                Test_Search_For_Self,
+                Test_Loop_Change,
+                Test_StrideDepth,
+                Test_Iters,
+                Test_Macc,
+                Test_Vle,
+                Test_Full_Static_Analysis]
+    testNames = [   "find phi",
+                    "search for self",
+                    "loop change",
+                    "stride and depth",
+                    "loop iters",
+                    "create macc",
+                    "create vle",
+                    "static analysis"]
 
     assert(len(tests) == len(testNames))
 
@@ -31,16 +45,9 @@ def main():
             dfg = _dfg.DFG("gcn3_strip.ll")
             result = tests[idx](dfg)
 
-    #dfg.blockDFGs[5].Create_Macc()
-    dfg.blockDFGs[5].Show_Graph()
-    #for block in dfg.blockDFGs[5]:
-    #    block.Show_Graph(dfg)
-
     util.Print_With_Bars("End of Testing")
 
     return
-
-
 
 
 

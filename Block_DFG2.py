@@ -1,6 +1,7 @@
 import warnings
 from matplotlib import lines
 from numpy import result_type
+from DFG_Node import DFG_Node
 
 import DFG_Node2 as dfgn
 import Instruction_Block as ib
@@ -380,6 +381,12 @@ class Block_DFG:
             self.vectorLen = 1
         return
 
+    def Get_Vector_Len(self):
+        if self.vectorLen == -1 or self.vectorLen == None:
+            self.Fill_Vector_Len()
+        assert(self.vectorLen > 0)
+        return self.vectorLen
+
     def Get_Exit_Block(self):
         if self.isLoopExit:
             return self
@@ -554,7 +561,7 @@ class Block_DFG:
                 fmaNode = node
                 foundMacc = True
         if foundMacc == False:
-            return
+            return fmaNode
 
         #now get the nodes of the operands
         mul1_var = fmaNode.instruction.args.mul1
@@ -578,7 +585,7 @@ class Block_DFG:
         resStorePtr = resStoreNode.Get_Link_By_Name(resStoreNode.instruction.args.pointer)
 
         maccNode:sdfgn.Macc_Node = sdfgn.Macc_Node(self)
-        self.createdNodes.append(maccNode)
+        self.Add_Created_Node(maccNode)
 
         maccNode.addPtrInfo.Init_Ptr_Info(addNode)
         maccNode.mul1PtrInfo.Init_Ptr_Info(mul1Node)
@@ -598,10 +605,6 @@ class Block_DFG:
         if maccNode.Check_Connected(maccNode.Get_Mul2_Ptr(), checkUse=False) == False:
             maccNode.Add_Dep(maccNode.Get_Mul2_Ptr())
 
-        maccNode.Add_Dep(self.blockNode)
-        maccNode.Add_Use(self.bneNode)
-
-
         # shouldn't be any but safe to do it anyways
         fmaNode.Remove_Psu_Connections()
         # we have gotten all info we need from fma node, time to delete,
@@ -609,13 +612,14 @@ class Block_DFG:
         # this anyways
         fmaNode.Delete_Node(False, warn=False)
 
+        # ~technically~ not guaranteed that this node has no uses
+        resPtr = maccNode.Get_Res_Ptr()
+        addNode.Recursive_Delete([resPtr])
+        mul1Node.Recursive_Delete([resPtr])
+        mul2Node.Recursive_Delete([resPtr])
+        resStoreNode.Recursive_Delete([resPtr])
 
-        addNode.Recursive_Delete()
-        mul1Node.Recursive_Delete()
-        mul2Node.Recursive_Delete()
-        resStoreNode.Recursive_Delete()
-
-        return
+        return maccNode
 
     def Get_Block_Entry_Loop_Up(self):
         """
@@ -640,8 +644,87 @@ class Block_DFG:
         assert(backBlock != None)
         return backBlock
 
+    def Add_Created_Node(self, node:DFG_Node):
+        assert(node not in self.createdNodes)
+        self.createdNodes.append(node)
+        self.blockNode.Add_Use(node)
+        self.bneNode.Add_Dep(node)
+
     def Get_Loop_Iters(self):
         entryBlock = self.Get_Entry_Block()
         entryBlock.Fill_Iter_Info()
 
         return entryBlock.selfIters
+
+    def Create_Vle(self):
+        """
+        creates a vle node from memset or memcpy instructions
+        """
+        callNode:"dfgn.DFG_Node" = None
+        for node in self.Get_Inner_Nodes():
+            if node.Is_MemCpy_Or_MemSet():
+                if callNode != None:
+                    warnings.warn("multiple memset or memcpy in a loop, not an\
+                                    issue, just need to add some more logic to handle\
+                                    probably making it just call itself in a loop would\
+                                    to work")
+                callNode = node
+        # early return if no memset or memcpy instructions
+        if callNode == None:
+            return callNode
+
+        storePtrName:str = callNode.instruction.args.result
+        loadPtrName:str  = callNode.instruction.args.value
+        length           = int(callNode.instruction.args.length)
+
+        storePtr = callNode.Get_Link_By_Name(storePtrName)
+        assert(storePtr != None)
+
+        immVal           = -1
+        loadPtr:"DFG_Node" = None
+        if loadPtrName.isnumeric():
+            immVal = int(loadPtrName)
+        else:
+            loadPtr  = callNode.Get_Link_By_Name(loadPtrName)
+
+        vleNode = sdfgn.VLE_Node(self)
+        self.Add_Created_Node(vleNode)
+
+        vleNode.resPtrInfo.Init_Ptr_Info(storePtr)
+        vleNode.Add_Use(vleNode.Get_Res_Ptr())
+
+        if (loadPtr != None):
+            assert(immVal == -1)
+            vleNode.loadPtrInfo.Init_Ptr_Info(loadPtr)
+            vleNode.Add_Dep(vleNode.Get_Load_Ptr())
+        else:
+            assert(loadPtr == None)
+            # ig this ~could~ be -1, but not in gcn
+            assert(immVal != -1)
+            vleNode.loadValue = immVal
+            vleNode.loadPtrInfo = None
+            vleNode.immediates.append(immVal)
+
+        vleNode.loadLength = length
+        vleNode.immediates.append(length)
+
+        # delete the call node, all necesary info extracted
+        callNode.Remove_Psu_Connections()
+        callNode.Delete_Node(False, warn=False)
+
+        resPtr = vleNode.Get_Res_Ptr()
+        if len(storePtr.Get_Uses()) == 0:
+            storePtr.Recursive_Delete([resPtr])
+        if loadPtr != None:
+            if len(loadPtr.Get_Uses()) == 0:
+                loadPtr.Recursive_Delete([resPtr])
+        loadStr = ""
+        if vleNode.Get_Load_Ptr() == None:
+            loadStr = str(vleNode.Get_Load_Imm())
+        else:
+            loadStr = vleNode.Get_Load_Ptr().name
+        resName = vleNode.Get_Res_Ptr().name
+        vleNode.name = "$vle_" + resName + "_" + loadStr
+        return vleNode
+
+

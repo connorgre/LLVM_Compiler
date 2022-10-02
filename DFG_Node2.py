@@ -70,22 +70,26 @@ class Loop_Info:
     stride        : "list[int]"     # stride of the pointer through each loop
     strideIters   : "list[int]"     # number of iters on this stride before moving up
     strideDepth   : "list[int] "    # depth of the stride/offsets
+    vectorLen     : "list[int]"     # list of vector length
     initVal       : "int"
     def __init__(self):
         self.stride         = []
         self.strideIters    = []
         self.strideDepth    = []
+        self.vectorLen      = []
         self.initVal        = None
     def getCopy(self):
         retInfo = Loop_Info()
         retInfo.stride      = self.stride.copy()
         retInfo.strideIters = self.strideIters.copy()
         retInfo.strideDepth = self.strideDepth.copy()
+        retInfo.vectorLen   = self.vectorLen.copy()
         retInfo.initVal     = self.initVal
         return retInfo
     def Print(self):
         print("\tstride:      " + str(self.stride))
         print("\tstrideIters: " + str(self.strideIters))
+        print("\tvectorLen:   " + str(self.vectorLen))
         print("\tstrideDepth  " + str(self.strideDepth))
         print("\tinitVal:     " + str(self.initVal))
 
@@ -667,11 +671,36 @@ class DFG_Node:
         self.loopInfo.initVal = self.Get_Init_Val()
         self.Get_LoopInfo_Stride_And_Depth()
         self.Get_Loop_Iters()
+        self.Get_Loop_VectorLen()
         assert(self.loopInfo.initVal != None)
         assert(len(self.loopInfo.stride)      > 0)
         assert(len(self.loopInfo.strideIters) > 0)
         assert(len(self.loopInfo.strideDepth) > 0)
         return
+
+    def Get_Loop_VectorLen(self):
+        """
+        gets/fills out the self.loopInfo.vectorLen member,
+        vector len of each loop at each depth
+        """
+        # we need to make sure we have this information
+        (strideList, depthList) = self.Get_LoopInfo_Stride_And_Depth()
+        assert(len(strideList) == len(depthList))
+
+        vectorLen:"list[int]" = []
+
+        curBlock = self.parentBlock
+        for depth in depthList:
+            while curBlock.Get_Loop_Depth() != depth:
+                curBlock = curBlock.Get_Block_Entry_Loop_Up()
+            vectorLen.append(curBlock.Get_Vector_Len())
+
+        if len(self.loopInfo.vectorLen) > 0:
+            assert(self.loopInfo.vectorLen == vectorLen)
+        else:
+            self.loopInfo.vectorLen = vectorLen
+
+        return self.loopInfo.vectorLen.copy()
 
     def Get_Loop_Iters(self):
         """
@@ -853,10 +882,11 @@ class DFG_Node:
     def Get_Block(self):
         return self.parentBlock
 
-    def Recursive_Delete(self):
+    def Recursive_Delete(self, noDelete:"list[DFG_Node]"=[]):
         """
         Delete node, then recursively deletes it's dependency nodes
-        if this node is the only node that uses that node
+        if this node is the only node that uses that node.
+        Any nodes in noDelete aren't deleted
         """
         deps = self.Get_Deps()
         uses = self.Get_Uses()
@@ -865,9 +895,23 @@ class DFG_Node:
         self.Delete_Node()
 
         for dep in deps:
-            if len(dep.Get_Uses()) == 0:
-                dep.Recursive_Delete()
+            if (len(dep.Get_Uses()) == 0) and (dep not in noDelete):
+                dep.Recursive_Delete(noDelete)
         return
 
     def Get_DFG(self):
         return self.Get_Block().Get_DFG()
+
+    def Is_MemCpy_Or_MemSet(self):
+        """
+        is the instruction memcopy or memset
+        """
+        isMem = False
+        instr = self.Get_Instr()
+        if instr == "call":
+            func = self.instruction.args.function
+            if func in ["@llvm.memset.p0i8.i64", "@llvm.memcpy.p0i8.p0i8.i64"]:
+                isMem = True
+        return isMem
+
+

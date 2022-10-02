@@ -45,6 +45,9 @@ class Pointer_Info():
                 assert(self.offsetInfo.stride      == [])
                 assert(self.offsetInfo.strideDepth == [])
                 self.offsetInfo.initVal = int(offsetStr)
+        else:
+            assert(self.ptrNode.Get_Instr() in ["alloca", "zeroinitializer"])
+            self.offsetInfo.initVal = 0
 
     def Get_Offset_Stride(self):
         assert(self.initInfo)
@@ -58,8 +61,28 @@ class Pointer_Info():
     def Get_Offset_InitVal(self):
         assert(self.initInfo)
         return self.offsetInfo.initVal
+    def Get_Offset_Info(self):
+        assert(self.initInfo)
+        return self.offsetInfo.getCopy()
+    def Get_Offset_VectorLen(self):
+        assert(self.initInfo)
+        return self.offsetInfo.vectorLen.copy()
     def Get_Ptr_Node(self):
         return self.ptrNode
+    def Get_Packed(self):
+        """
+        returns [stride,strideIters,vectorLen,strideDepth]
+        """
+        retList = []
+        retList.append(self.Get_Offset_Stride())
+        retList.append(self.Get_Offset_StrideIters())
+        retList.append(self.Get_Offset_VectorLen())
+        retList.append(self.Get_Offset_StrideDepth())
+        return retList
+    def Print(self):
+        print(self.ptrNode.name)
+        self.offsetInfo.Print()
+
 
 class Phi_Node(dfgn.DFG_Node):
     """
@@ -251,6 +274,29 @@ class VLE_Node(dfgn.DFG_Node):
             return True
         else:
             return False
+    def Get_ResPtrInfo(self):
+        return self.resPtrInfo
+    def Get_LoadPtrInfo(self):
+        return self.loadPtrInfo
+    def Get_Res_Ptr(self):
+        return self.resPtrInfo.Get_Ptr_Node()
+    def Get_Load_Ptr(self):
+        if self.loadPtrInfo != None:
+            return self.loadPtrInfo.Get_Ptr_Node()
+        else:
+            return None
+    def Get_Load_Imm(self):
+        return self.loadValue
+    def Get_Load(self):
+        """
+        returns the int of loadValue or the node of loadPtr
+        """
+        if self.loadValue != None:
+            assert(self.loadPtrInfo == None)
+            return self.loadValue
+        else:
+            assert(self.loadPtrInfo != None)
+            return self.loadPtrInfo.Get_Ptr_Node()
 
 class Macc_Node(dfgn.DFG_Node):
     """
@@ -280,3 +326,12 @@ class Macc_Node(dfgn.DFG_Node):
         return self.mul1PtrInfo.Get_Ptr_Node()
     def Get_Mul2_Ptr(self):
         return self.mul2PtrInfo.Get_Ptr_Node()
+
+    def Get_ResPtrInfo(self):
+        return self.resPtrInfo
+    def Get_AddPtrInfo(self):
+        return self.addPtrInfo
+    def Get_Mul1PtrInfo(self):
+        return self.mul1PtrInfo
+    def Get_Mul2PtrInfo(self):
+        return self.mul2PtrInfo

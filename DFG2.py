@@ -39,9 +39,16 @@ class DFG:
 
     def Init_DFG(self):
         self.Init_Block_DFG_List()
-        self.Get_All_Variables()
+        self.Init_All_Variables()
         self.Link_Nodes()
         self.Create_Block_DFGs()
+        return
+
+    def Do_Static_Analysis(self):
+        self.Init_Macc()
+        self.Init_Vle()
+
+
         return
 
     def Init_Block_DFG_List(self):
@@ -50,12 +57,12 @@ class DFG:
             block_dfg = b_dfg.Block_DFG(self, block)
             self.blockDFGs.append(block_dfg)
 
-    def Get_All_Variables(self):
+    def Init_All_Variables(self):
         """
         Finds all the variables in the file
         """
         # first get the globals
-        self.Get_Global_Variables()
+        self.Init_Global_Variables()
         for bIdx in range(len(self.parsedFile.blocks)):
             block = self.parsedFile.Get_Order_Idx(bIdx)
             ordIdx = block.block_order
@@ -80,7 +87,7 @@ class DFG:
                         assert(instr.args.instr in ["call", "store"])
                         nodeName:str = None
                         if instr.args.instr == "store":
-                            nodeName = "store_" + instr.args.result
+                            nodeName = "$store_" + instr.args.result
                         else:
                             if instr.args.function == "@llvm.memcpy.p0i8.p0i8.i64":
                                 nodeName = "$memcpy_" + instr.args.result
@@ -95,7 +102,6 @@ class DFG:
                         newNode.name = nodeName
                         newNode.assignment = (ordIdx, instr.block_offset)
                         self.nodes.append(newNode)
-                        print(newNode.name)
                 elif (instr.args.instr == "br"):
                     node = dfgn.DFG_Node(blockDfg, instr)
                     node.name = "%" + block.name
@@ -116,7 +122,7 @@ class DFG:
                 retNode = node
         return retNode
 
-    def Get_Global_Variables(self):
+    def Init_Global_Variables(self):
         """
         Easier to just handle the global variables seperately
         """
@@ -194,7 +200,7 @@ class DFG:
         """
         self.graph = nx.DiGraph()
         imm_num = 0
-        for node in self.nodes:
+        for node in self.Get_All_Nodes():
             for use in node.Get_Uses():
                 if node in self.branchNodes:
                     suffix1 = "_b"
@@ -264,3 +270,26 @@ class DFG:
             if node in nodeList:
                 block.Remove_Node(node)
         return
+
+    def Init_Macc(self):
+        for block in self.blockDFGs:
+            block.Create_Macc()
+
+    def Init_Vle(self):
+        for block in self.blockDFGs:
+            block.Create_Vle()
+
+    def Get_All_Nodes(self):
+        """
+        Gets all nodes
+        """
+        nodeList = []
+        for block in self.blockDFGs:
+            blockNodes = block.Get_All_Nodes()
+            for node in blockNodes:
+                if node not in nodeList:
+                    nodeList.append(node)
+        for node in self.globalNodes:
+            if node not in nodeList:
+                nodeList.append(node)
+        return nodeList
