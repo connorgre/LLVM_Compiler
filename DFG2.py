@@ -47,7 +47,7 @@ class DFG:
     def Do_Static_Analysis(self):
         self.Init_Macc()
         self.Init_Vle()
-
+        self.Cleanup_Blocks_Post_Analysis()
 
         return
 
@@ -257,6 +257,8 @@ class DFG:
         removes a node from all blocks and dfg lists.
         Doesn't remove the node from any dependency or use lists
         """
+        if node.name == "%for.cond.cleanup53":
+            warnings.warn("dbgprint")
         assert(node in self.nodes)
         self.nodes.remove(node)
         if node in self.globalNodes:
@@ -293,3 +295,10 @@ class DFG:
             if node not in nodeList:
                 nodeList.append(node)
         return nodeList
+
+    def Cleanup_Blocks_Post_Analysis(self):
+        """
+        cleans up the blocks after doing static analysis
+        """
+        for block in self.blockDFGs:
+            block.Post_Analysis_Cleanup()

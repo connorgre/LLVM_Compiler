@@ -45,6 +45,7 @@ class Block_DFG:
     isLoopExit      :bool
 
     brRemoved       :bool
+    phiRemoved      :bool
 
     def __init__(self, dfg:"_dfg.DFG", block:ib.Instruction_Block):
         self.block        = block
@@ -77,6 +78,7 @@ class Block_DFG:
 
         self.brToBneDone = False
         self.brRemoved = False
+        self.phiRemoved = False
 
     def Init_Block_1(self):
         """
@@ -101,7 +103,45 @@ class Block_DFG:
         """
         can't do these until Init2 has been done for every block
         """
+
+
+    def Post_Analysis_Cleanup(self):
+        """
+        cleanup nodes that shouldn't be needed after doing all the
+        static analysis (ie delete brNodes, phiNodes, and any dangling nodes)
+        """
+
+        self.blockNode.numIters = self.selfIters
+        self.blockNode.loopEntry = self.isLoopEntry
+        self.blockNode.loopExit = self.isLoopExit
+        if self.isLoopEntry:
+            assert(self.phiNode != None)
+            self.blockNode.loopInfo = self.phiNode.Get_Loop_Info()
+
+        self.bneNode.iters = self.selfIters
+
         self.Remove_Br()
+        self.Unlink_Condition_From_Bne()
+        self.Remove_Phi_Nodes()
+
+    def Remove_Phi_Nodes(self):
+        """
+        step that gets done in post analysis cleanup, after necessary info
+        has been extracted from phiNodes
+        """
+        if self.phiRemoved:
+            warnings.warn("Phi already removed")
+            return
+        # early return, nothing to be done
+        if self.phiNode == None:
+            self.phiRemoved = True
+            return
+        uses = self.phiNode.Get_Uses()
+        assert(len(uses) == 1)
+        self.phiNode.Remove_Use(uses[0])
+        self.phiNode.Recursive_Delete()
+        self.phiNode = None
+        self.phiRemoved = True
 
     def Init_Inner_Nodes(self):
         """
@@ -176,6 +216,20 @@ class Block_DFG:
                 warnings.warn("block dfg has node in multiple lists")
             removed = True
         assert(removed)
+        if node == self.bneNode:
+            warnings.warn("deleting bneNode ?")
+            self.bneNode = None
+        if node == self.blockNum:
+            warnings.warn("deleting blockNode ?")
+            self.blockNode = None
+        if node == self.brNode:
+            assert(self.brRemoved == False)
+            self.brNode = None
+            self.brRemoved = True
+        if node == self.phiNode:
+            assert(self.phiRemoved == False)
+            self.phiNode = None
+            self.phiRemoved = True
         return
 
     def Print_Vars(self):
@@ -295,6 +349,7 @@ class Block_DFG:
         """
         assert(self.brNode != None)
         if self.brNode.Get_Instr() == "ret":
+            self.brToBneDone = True
             return # nothing to be done
         assert(self.brNode.Get_Instr() == "br")
 
@@ -331,6 +386,15 @@ class Block_DFG:
             assert(self.bneNode.backTarget != None)
 
         self.brNode.Add_Connections_To_Node(self.bneNode)
+
+        deps = self.bneNode.Get_Deps()
+        # The bneNode already points to block, which already points
+        # to phi.  Unnecessary
+        for use in self.bneNode.Get_Uses():
+            if use.Is_Phi():
+                assert(use not in deps)
+                self.bneNode.Remove_Node(use)
+
         self.brToBneDone = True
         return
 
@@ -496,7 +560,11 @@ class Block_DFG:
         Removes the br instructions, as all necessary info has been given
         to the bne block.  Must be called AFTER Transfer_Br_Info_To_Bne
         """
+        if self.brRemoved == True:
+            warnings.warn("br already removed.")
+            return
         if self.brNode.Get_Instr() == "ret":
+            self.brRemoved = True
             return
         assert(self.brToBneDone)
         assert(self.brNode.Get_Instr() == "br")
@@ -727,4 +795,17 @@ class Block_DFG:
         vleNode.name = "$vle_" + resName + "_" + loadStr
         return vleNode
 
-
+    def Unlink_Condition_From_Bne(self):
+        """
+        unlinks the loop limit condition from the bne node
+        """
+        assert(self.brToBneDone)
+        assert(self.brRemoved)
+        deps = self.bneNode.Get_Deps()
+        for dep in deps:
+            if dep.Get_Instr() == "icmp":
+                assert(self.isLoopExit)
+                self.bneNode.Remove_Node(dep)
+                assert(len(dep.Get_Uses()) == 0)
+                dep.Recursive_Delete()
+        return

@@ -198,10 +198,8 @@ class Block_Node(dfgn.DFG_Node):
     phi and block in riscV dfg
     """
     numIters    :int
-    initVal     :int
-    stride      :int
-    vectorLen   :int
     loopEntry   :bool
+    loopExit    :bool
 
     iterName:str
     def __init__(self, block:"bdfg.Block_DFG", instruction=None):
@@ -209,11 +207,8 @@ class Block_Node(dfgn.DFG_Node):
         self.nodeType.special = True
         self.nodeType.block   = True
         self.numIters         = None
-        self.initVal          = None
-        self.stride           = None
-        self.vectorLen        = None
-        self.iterName         = None
         self.loopEntry        = None
+        self.loopExit         = None
         return
 
     def Get_IterName(self, iterName:str = None):
@@ -230,9 +225,7 @@ class Bne_Node(dfgn.DFG_Node):
     """
     Node for bne info
     """
-    loopLimit:int
-    loopStride:int
-    initVal:int
+    iters:int
     backTarget:dfgn.DFG_Node
     forwardTarget:dfgn.DFG_Node
     alwaysForward:bool
@@ -243,8 +236,7 @@ class Bne_Node(dfgn.DFG_Node):
         self.nodeType.bne     = True
         self.alwaysForward    = True
 
-        self.loopLimit        = None
-        self.loopStride       = None
+        self.iters        = None
         self.backTarget       = None
         self.forwardTarget    = None
         return

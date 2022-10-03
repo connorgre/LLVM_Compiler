@@ -198,9 +198,12 @@ def Test_Full_Static_Analysis(dfg:_dfg.DFG):
     util.Print_With_Bars("Testing Full Static Analysis", "-", printBottom=False)
 
     dfg = util.Re_Init()
-    dfg.Show_Graph()
+    #dfg.Show_Graph()
     dfg.Do_Static_Analysis()
+
     dfg.Show_Graph()
+    for block in dfg.blockDFGs:
+        block.Show_Graph()
 
     util.PrintResult(True)
 
