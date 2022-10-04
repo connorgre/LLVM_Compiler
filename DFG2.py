@@ -257,8 +257,6 @@ class DFG:
         removes a node from all blocks and dfg lists.
         Doesn't remove the node from any dependency or use lists
         """
-        if node.name == "%for.cond.cleanup53":
-            warnings.warn("dbgprint")
         assert(node in self.nodes)
         self.nodes.remove(node)
         if node in self.globalNodes:
